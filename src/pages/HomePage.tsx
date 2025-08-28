@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Home, Trophy, User } from "lucide-react";
-import { Button } from "@/src/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { db, auth, googleProvider } from "@/lib/firebase";
 import {
 	collection,
@@ -15,7 +15,7 @@ import {
 	onAuthStateChanged,
 	type User as FirebaseUser,
 } from "firebase/auth";
-import UnityComponent from "@/src/components/unitycomponent";
+import UnityComponent from "@/components/unitycomponent";
 import {
 	Dialog,
 	DialogTrigger,
@@ -23,7 +23,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 	DialogDescription,
-} from "@/src/components/ui/dialog";
+} from "@/components/ui/dialog";
 
 const navigationItems = [
 	{ id: "home", label: "ホーム", icon: Home },
