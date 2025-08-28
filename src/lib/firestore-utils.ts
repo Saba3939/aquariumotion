@@ -1,4 +1,4 @@
-import { db } from './firebase-server';
+import { getDB } from './firebase-server';
 import { Timestamp } from 'firebase-admin/firestore';
 import { DailyUsage, Device, UserDevices } from '../types/firestore';
 
@@ -8,6 +8,7 @@ export async function saveDailyUsage(
   usageType: 'water' | 'electricity',
   amount: number
 ): Promise<void> {
+  const db = getDB();
   if (!db) {
     throw new Error('Firebase Admin SDK not initialized');
   }
@@ -27,6 +28,7 @@ export async function saveDailyUsage(
 
 // デバイス登録
 export async function registerDevice(deviceType: 'electricity' | 'water'): Promise<Device> {
+  const db = getDB();
   if (!db) {
     throw new Error('Firebase Admin SDK not initialized');
   }
@@ -49,6 +51,7 @@ export async function registerDevice(deviceType: 'electricity' | 'water'): Promi
 
 // デバイス紐付け
 export async function linkDeviceToUser(userId: string, registrationCode: string): Promise<boolean> {
+  const db = getDB();
   if (!db) {
     throw new Error('Firebase Admin SDK not initialized');
   }
@@ -87,6 +90,7 @@ export async function linkDeviceToUser(userId: string, registrationCode: string)
 
 // デバイス検証（API-KEY認証用）
 export async function verifyDevice(deviceId: string): Promise<Device | null> {
+  const db = getDB();
   if (!db) {
     throw new Error('Firebase Admin SDK not initialized');
   }

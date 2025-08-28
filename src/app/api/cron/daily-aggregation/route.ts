@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/firebase-server';
+import { getDB } from '@/lib/firebase-server';
 import { calculateConservationScore } from '@/lib/conservation-score';
 import { createSuccessResponse, createErrorResponse } from '@/lib/validation';
 import { Timestamp } from 'firebase-admin/firestore';
@@ -25,6 +25,7 @@ function validateCronRequest(request: NextRequest): boolean {
 export async function GET(request: NextRequest) {
   try {
     // Firebase Admin SDKの初期化確認
+    const db = getDB();
     if (!db) {
       console.error('Firebase Admin SDK not initialized');
       return NextResponse.json(

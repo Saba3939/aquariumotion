@@ -1,6 +1,8 @@
 import * as admin from "firebase-admin";
 import { DecodedIdToken } from "firebase-admin/auth";
 
+let firebaseInitialized = false;
+
 // サービスアカウント設定を安全に取得
 function getServiceAccount() {
 	const serviceAccountEnv = process.env.GOOGLE_SERVICE_ACCOUNT;
@@ -26,35 +28,37 @@ function getServiceAccount() {
 	}
 }
 
-// Firebase Admin初期化
+// Firebase Admin初期化（遅延初期化）
 function initializeFirebaseAdmin() {
-	if (admin.apps.length > 0) {
-		return admin.app();
+	if (firebaseInitialized || admin.apps.length > 0) {
+		return true;
 	}
 
 	const serviceAccount = getServiceAccount();
 	
 	if (!serviceAccount) {
-		// サービスアカウントがない場合はダミーの初期化（ビルド時エラー回避）
 		console.warn('Firebase Admin SDK not initialized - service account not available');
-		return null;
+		return false;
 	}
 
 	try {
-		return admin.initializeApp({
+		admin.initializeApp({
 			credential: admin.credential.cert(serviceAccount),
 		});
+		firebaseInitialized = true;
+		return true;
 	} catch (error) {
 		console.error('Failed to initialize Firebase Admin SDK:', error);
-		return null;
+		return false;
 	}
 }
 
-// Firebase Admin App初期化（未使用だが初期化は必要）
-initializeFirebaseAdmin();
-
-// 安全にFirestore/Authインスタンスを取得
+// 安全にFirestore/Authインスタンスを取得（遅延初期化付き）
 function getFirestoreInstance() {
+	if (!initializeFirebaseAdmin()) {
+		return null;
+	}
+	
 	try {
 		return admin.firestore();
 	} catch (error) {
@@ -64,6 +68,10 @@ function getFirestoreInstance() {
 }
 
 function getAuthInstance() {
+	if (!initializeFirebaseAdmin()) {
+		return null;
+	}
+	
 	try {
 		return admin.auth();
 	} catch (error) {
@@ -72,11 +80,18 @@ function getAuthInstance() {
 	}
 }
 
-const db = getFirestoreInstance();
-const auth = getAuthInstance();
+// 実行時に取得する関数として export
+export function getDB() {
+	return getFirestoreInstance();
+}
+
+export function getAuth() {
+	return getAuthInstance();
+}
 
 // IDトークン検証関数
 export async function verifyIdToken(idToken: string): Promise<DecodedIdToken | null> {
+	const auth = getAuthInstance();
 	if (!auth) {
 		console.error('Auth instance not available');
 		return null;
@@ -97,4 +112,5 @@ export function verifyApiKey(apiKey: string): boolean {
 	return Boolean(validApiKey && apiKey === validApiKey);
 }
 
-export { db, admin, auth };
+// 後方互換性のため（動的に取得）
+export { admin };
