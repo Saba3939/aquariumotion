@@ -433,3 +433,10 @@ export default function HomePage() {
 		</div>
 	);
 }
+
+// SSGを無効にしてCSRで動作させる
+export const getServerSideProps = async () => {
+	return {
+		props: {},
+	};
+};
