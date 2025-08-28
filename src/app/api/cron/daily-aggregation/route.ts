@@ -24,6 +24,15 @@ function validateCronRequest(request: NextRequest): boolean {
  */
 export async function GET(request: NextRequest) {
   try {
+    // Firebase Admin SDKの初期化確認
+    if (!db) {
+      console.error('Firebase Admin SDK not initialized');
+      return NextResponse.json(
+        createErrorResponse('SERVICE_UNAVAILABLE', 'Firebase service not available', 503),
+        { status: 503 }
+      );
+    }
+
     // Cron認証チェック
     if (!validateCronRequest(request)) {
       return NextResponse.json(
