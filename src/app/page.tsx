@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Home, Trophy, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { db, auth, googleProvider } from "@/lib/firebase";
+import { getFirebaseDB, getFirebaseAuth, getGoogleProvider } from "@/lib/firebase";
 import {
 	collection,
 	getDoc,
@@ -15,6 +15,7 @@ import {
 	signInWithPopup,
 	signOut,
 	onAuthStateChanged,
+	getRedirectResult,
 	type User as FirebaseUser,
 } from "firebase/auth";
 import UnityComponent from "@/components/unitycomponent";
@@ -77,10 +78,30 @@ export default function HomePage() {
 	const [newBornFish, setNewBornFish] = useState<Fish | null>(null);
 	const [user, setUser] = useState<FirebaseUser | null>(null);
 	const [authLoading, setAuthLoading] = useState(true);
+	const [authError, setAuthError] = useState<string | null>(null);
 	const router = useRouter();
 
 	// 認証状態の監視
 	useEffect(() => {
+		console.log('認証状態監視開始');
+		const auth = getFirebaseAuth();
+		if (!auth) {
+			console.error('Firebase認証の初期化に失敗しました');
+			setAuthLoading(false);
+			return;
+		}
+		
+		// リダイレクト認証の結果をチェック
+		getRedirectResult(auth)
+			.then((result) => {
+				if (result) {
+					console.log("リダイレクト認証成功:", result.user);
+				}
+			})
+			.catch((error) => {
+				console.error("リダイレクト認証エラー:", error);
+			});
+		
 		const unsubscribe = onAuthStateChanged(auth, (user) => {
 			setUser(user);
 			setAuthLoading(false);
@@ -90,15 +111,43 @@ export default function HomePage() {
 
 	// Googleでログイン
 	const signInWithGoogle = async () => {
+		console.log('ログイン処理開始');
+		setAuthError(null); // エラーをリセット
+		
+		const auth = getFirebaseAuth();
+		const provider = getGoogleProvider();
+		
+		if (!auth || !provider) {
+			const errorMsg = "Firebase認証の初期化に失敗しました。.env.localファイルの設定を確認してください。";
+			console.error(errorMsg);
+			console.error("auth:", auth);
+			console.error("provider:", provider);
+			setAuthError(errorMsg);
+			return;
+		}
+		
 		try {
-			await signInWithPopup(auth, googleProvider);
-		} catch (error) {
+			// 常にリダイレクト方式を使用（iframe制限完全回避）
+			const { signInWithRedirect } = await import('firebase/auth');
+			console.log("リダイレクト認証を開始します...");
+			await signInWithRedirect(auth, provider);
+		} catch (error: any) {
+			const errorMsg = `ログインエラー: ${error?.code || 'UNKNOWN'} - ${error?.message || 'ネットワーク接続を確認してください'}`;
 			console.error("ログインに失敗しました:", error);
+			console.error("エラーコード:", error?.code);
+			console.error("エラーメッセージ:", error?.message);
+			setAuthError(errorMsg);
 		}
 	};
 
 	// ログアウト
 	const handleSignOut = async () => {
+		const auth = getFirebaseAuth();
+		if (!auth) {
+			console.error("Firebase認証が利用できません");
+			return;
+		}
+		
 		try {
 			await signOut(auth);
 		} catch (error) {
@@ -108,6 +157,12 @@ export default function HomePage() {
 
 	const fetchAquariumData = async () => {
 		if (!user) return;
+		
+		const db = getFirebaseDB();
+		if (!db) {
+			console.error("Firestoreが利用できません");
+			return;
+		}
 
 		try {
 			setLoading(true);
@@ -228,6 +283,25 @@ export default function HomePage() {
 						</h1>
 						<p className='text-gray-600'>あなたの水槽にログインしてください</p>
 					</div>
+					{authError && (
+						<div className='mb-4 p-3 bg-red-100 border border-red-300 rounded-lg text-red-700 text-sm'>
+							<strong>ログインエラー:</strong> {authError}
+						</div>
+					)}
+					{process.env.NODE_ENV === 'development' && (
+						<details className='mb-4 text-xs text-gray-500'>
+							<summary className='cursor-pointer hover:text-gray-700'>開発者向け情報</summary>
+							<div className='mt-2 p-2 bg-gray-100 rounded text-left'>
+								<p>Firebase設定状況:</p>
+								<ul className='list-disc list-inside'>
+									<li>API Key: {process.env.NEXT_PUBLIC_FIREBASE_API_KEY ? '設定済み' : '❌未設定'}</li>
+									<li>Auth Domain: {process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ? '設定済み' : '❌未設定'}</li>
+									<li>Project ID: {process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ? '設定済み' : '❌未設定'}</li>
+									<li>App ID: {process.env.NEXT_PUBLIC_FIREBASE_APP_ID ? '設定済み' : '❌未設定'}</li>
+								</ul>
+							</div>
+						</details>
+					)}
 					<Button
 						onClick={signInWithGoogle}
 						className='w-full bg-blue-500 hover:bg-blue-600 text-white py-3 text-lg'
