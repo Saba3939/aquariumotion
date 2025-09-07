@@ -91,21 +91,37 @@ export default function HomePage() {
 			return;
 		}
 		
+		let hasProcessedRedirect = false;
+		
+		// 認証状態の監視を開始
+		const unsubscribe = onAuthStateChanged(auth, (user) => {
+			console.log('認証状態変更:', user ? 'ログイン済み' : '未ログイン', user?.email);
+			setUser(user);
+			// リダイレクト処理が完了していない場合のみauthLoadingをfalseに
+			if (hasProcessedRedirect) {
+				setAuthLoading(false);
+			}
+		});
+		
 		// リダイレクト認証の結果をチェック
 		getRedirectResult(auth)
 			.then((result) => {
+				hasProcessedRedirect = true;
 				if (result) {
-					console.log("リダイレクト認証成功:", result.user);
+					console.log("リダイレクト認証成功:", result.user.email);
+					setUser(result.user);
+				} else {
+					console.log("リダイレクト認証なし（通常のページロード）");
 				}
+				setAuthLoading(false);
 			})
 			.catch((error) => {
+				hasProcessedRedirect = true;
 				console.error("リダイレクト認証エラー:", error);
+				setAuthError(`認証エラー: ${error.message}`);
+				setAuthLoading(false);
 			});
 		
-		const unsubscribe = onAuthStateChanged(auth, (user) => {
-			setUser(user);
-			setAuthLoading(false);
-		});
 		return () => unsubscribe();
 	}, []);
 
@@ -113,6 +129,7 @@ export default function HomePage() {
 	const signInWithGoogle = async () => {
 		console.log('ログイン処理開始');
 		setAuthError(null); // エラーをリセット
+		setAuthLoading(true); // ログイン処理中に設定
 		
 		const auth = getFirebaseAuth();
 		const provider = getGoogleProvider();
