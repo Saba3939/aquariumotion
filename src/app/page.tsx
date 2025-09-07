@@ -16,6 +16,7 @@ import {
 	signOut,
 	onAuthStateChanged,
 	getRedirectResult,
+	signInWithPopup,
 	type User as FirebaseUser,
 } from "firebase/auth";
 import UnityComponent from "@/components/unitycomponent";
@@ -86,6 +87,10 @@ export default function HomePage() {
 		console.log('=== 認証初期化開始 ===');
 		console.log('現在のドメイン:', window.location.hostname);
 		console.log('URL:', window.location.href);
+		console.log('Firebase設定:');
+		console.log('- API Key:', process.env.NEXT_PUBLIC_FIREBASE_API_KEY ? '設定済み' : '未設定');
+		console.log('- Auth Domain:', process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN);
+		console.log('- Project ID:', process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID);
 		
 		const auth = getFirebaseAuth();
 		if (!auth) {
@@ -142,36 +147,70 @@ export default function HomePage() {
 	}, []);
 
 	// Googleでログイン
-	const signInWithGoogle = async () => {
-		console.log('ログイン処理開始');
-		setAuthError(null); // エラーをリセット
-		setAuthLoading(true); // ログイン処理中に設定
+	// ポップアップでログイン
+	const signInWithGooglePopup = async () => {
+		console.log('=== ポップアップログイン開始 ===');
+		setAuthError(null);
+		setAuthLoading(true);
 		
 		const auth = getFirebaseAuth();
 		const provider = getGoogleProvider();
 		
 		if (!auth || !provider) {
-			const errorMsg = "Firebase認証の初期化に失敗しました。.env.localファイルの設定を確認してください。";
-			console.error(errorMsg);
-			console.error("auth:", auth);
-			console.error("provider:", provider);
-			setAuthError(errorMsg);
+			console.error('Firebase初期化失敗');
+			setAuthError('Firebase認証の初期化に失敗しました');
+			setAuthLoading(false);
 			return;
 		}
 		
 		try {
-			// 常にリダイレクト方式を使用（iframe制限完全回避）
-			const { signInWithRedirect } = await import('firebase/auth');
-			console.log("リダイレクト認証を開始します...");
-			await signInWithRedirect(auth, provider);
+			console.log('ポップアップ認証実行中...');
+			const result = await signInWithPopup(auth, provider);
+			console.log('✅ ポップアップ認証成功:', result.user.email);
+			setUser(result.user);
+			setAuthLoading(false);
 		} catch (error: unknown) {
-			const errorMsg = `ログインエラー: ${(error as { code?: string })?.code || 'UNKNOWN'} - ${(error as { message?: string })?.message || 'ネットワーク接続を確認してください'}`;
-			console.error("ログインに失敗しました:", error);
-			console.error("エラーコード:", (error as { code?: string })?.code);
-			console.error("エラーメッセージ:", (error as { message?: string })?.message);
-			setAuthError(errorMsg);
+			console.error('ポップアップ認証エラー:', error);
+			const errorCode = (error as { code?: string })?.code;
+			const errorMsg = (error as { message?: string })?.message;
+			setAuthError(`ポップアップログインエラー: ${errorCode}`);
+			setAuthLoading(false);
 		}
 	};
+
+	// リダイレクトでログイン
+	const signInWithGoogleRedirect = async () => {
+		console.log('=== リダイレクトログイン開始 ===');
+		setAuthError(null);
+		setAuthLoading(true);
+		
+		const auth = getFirebaseAuth();
+		const provider = getGoogleProvider();
+		
+		if (!auth || !provider) {
+			console.error('Firebase初期化失敗');
+			setAuthError('Firebase認証の初期化に失敗しました');
+			setAuthLoading(false);
+			return;
+		}
+		
+		try {
+			const { signInWithRedirect } = await import('firebase/auth');
+			console.log('リダイレクト認証実行中...');
+			console.log('認証ドメイン:', process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN);
+			console.log('現在のドメイン:', window.location.hostname);
+			await signInWithRedirect(auth, provider);
+		} catch (error: unknown) {
+			console.error('リダイレクト認証エラー:', error);
+			const errorCode = (error as { code?: string })?.code;
+			const errorMsg = (error as { message?: string })?.message;
+			setAuthError(`リダイレクトログインエラー: ${errorCode} - ${errorMsg}`);
+			setAuthLoading(false);
+		}
+	};
+
+	// デフォルトはポップアップを使用
+	const signInWithGoogle = signInWithGooglePopup;
 
 	// ログアウト
 	const handleSignOut = async () => {
@@ -335,12 +374,24 @@ export default function HomePage() {
 							</div>
 						</details>
 					)}
-					<Button
-						onClick={signInWithGoogle}
-						className='w-full bg-blue-500 hover:bg-blue-600 text-white py-3 text-lg'
-					>
-						Googleでログイン
-					</Button>
+					<div className='space-y-3'>
+						<Button
+							onClick={signInWithGoogle}
+							className='w-full bg-blue-500 hover:bg-blue-600 text-white py-3 text-lg'
+						>
+							Googleでログイン（ポップアップ）
+						</Button>
+						<Button
+							onClick={signInWithGoogleRedirect}
+							variant='outline'
+							className='w-full border-blue-500 text-blue-500 hover:bg-blue-50 py-3 text-lg'
+						>
+							Googleでログイン（リダイレクト）
+						</Button>
+						<p className='text-xs text-gray-500 text-center'>
+							ポップアップがブロックされる場合はリダイレクトをお試しください
+						</p>
+					</div>
 				</div>
 			</div>
 		);
