@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Home, Trophy, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import Image from "next/image";
 import { getFirebaseDB, getFirebaseAuth, getGoogleProvider } from "@/lib/firebase";
 import {
 	collection,
@@ -12,7 +13,6 @@ import {
 	Timestamp,
 } from "firebase/firestore";
 import {
-	signInWithPopup,
 	signOut,
 	onAuthStateChanged,
 	getRedirectResult,
@@ -131,11 +131,11 @@ export default function HomePage() {
 			const { signInWithRedirect } = await import('firebase/auth');
 			console.log("リダイレクト認証を開始します...");
 			await signInWithRedirect(auth, provider);
-		} catch (error: any) {
-			const errorMsg = `ログインエラー: ${error?.code || 'UNKNOWN'} - ${error?.message || 'ネットワーク接続を確認してください'}`;
+		} catch (error: unknown) {
+			const errorMsg = `ログインエラー: ${(error as { code?: string })?.code || 'UNKNOWN'} - ${(error as { message?: string })?.message || 'ネットワーク接続を確認してください'}`;
 			console.error("ログインに失敗しました:", error);
-			console.error("エラーコード:", error?.code);
-			console.error("エラーメッセージ:", error?.message);
+			console.error("エラーコード:", (error as { code?: string })?.code);
+			console.error("エラーメッセージ:", (error as { message?: string })?.message);
 			setAuthError(errorMsg);
 		}
 	};
@@ -155,7 +155,7 @@ export default function HomePage() {
 		}
 	};
 
-	const fetchAquariumData = async () => {
+	const fetchAquariumData = useCallback(async () => {
 		if (!user) return;
 		
 		const db = getFirebaseDB();
@@ -214,7 +214,7 @@ export default function HomePage() {
 		} finally {
 			setLoading(false);
 		}
-	};
+	}, [user]);
 
 	const hatchEgg = async () => {
 		if (!user) return;
@@ -257,7 +257,7 @@ export default function HomePage() {
 		if (user) {
 			fetchAquariumData();
 		}
-	}, [user]);
+	}, [user, fetchAquariumData]);
 
 	// 認証ローディング中
 	if (authLoading) {
@@ -337,10 +337,12 @@ export default function HomePage() {
 					{/* User info and logout */}
 					<div className='flex items-center space-x-4'>
 						<div className='flex items-center space-x-2'>
-							<img
+							<Image
 								src={user.photoURL || "/default-avatar.png"}
 								alt='User avatar'
-								className='w-8 h-8 rounded-full'
+								width={32}
+								height={32}
+								className='rounded-full'
 							/>
 							<span className='text-sm text-gray-700'>{user.displayName}</span>
 						</div>
