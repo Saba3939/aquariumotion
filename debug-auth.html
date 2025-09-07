@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Firebase Auth Debug</title>
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { 
+            getAuth, 
+            GoogleAuthProvider, 
+            signInWithRedirect, 
+            getRedirectResult,
+            onAuthStateChanged 
+        } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        
+        const firebaseConfig = {
+            apiKey: "AIzaSyD-eg6zqjXKuxisGkevAQy37h4hbpKG8SI",
+            authDomain: "kosenprocon2025.firebaseapp.com",
+            projectId: "kosenprocon2025",
+            storageBucket: "kosenprocon2025.firebasestorage.app",
+            messagingSenderId: "899830984318",
+            appId: "1:899830984318:web:d30fe588025e17811d722f"
+        };
+        
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const provider = new GoogleAuthProvider();
+        
+        function log(message) {
+            const div = document.createElement('div');
+            div.textContent = new Date().toLocaleTimeString() + ': ' + message;
+            document.getElementById('log').appendChild(div);
+            console.log(message);
+        }
+        
+        // 認証状態の監視
+        onAuthStateChanged(auth, (user) => {
+            log('認証状態変更: ' + (user ? user.email : '未ログイン'));
+            if (user) {
+                log('UID: ' + user.uid);
+                log('表示名: ' + user.displayName);
+                log('写真: ' + user.photoURL);
+            }
+        });
+        
+        // リダイレクト結果をチェック
+        getRedirectResult(auth)
+            .then((result) => {
+                if (result) {
+                    log('リダイレクト認証成功: ' + result.user.email);
+                } else {
+                    log('リダイレクト認証なし');
+                }
+            })
+            .catch((error) => {
+                log('リダイレクト認証エラー: ' + error.code + ' - ' + error.message);
+            });
+        
+        // ログインボタンの処理
+        document.getElementById('login').addEventListener('click', async () => {
+            try {
+                log('ログイン処理開始...');
+                await signInWithRedirect(auth, provider);
+            } catch (error) {
+                log('ログインエラー: ' + error.code + ' - ' + error.message);
+            }
+        });
+        
+        log('Firebase初期化完了');
+        log('現在のドメイン: ' + window.location.hostname);
+    </script>
+</head>
+<body>
+    <h1>Firebase認証デバッグ</h1>
+    <button id="login">Googleでログイン</button>
+    <div id="log" style="margin-top: 20px; font-family: monospace; white-space: pre-line;"></div>
+</body>
+</html>

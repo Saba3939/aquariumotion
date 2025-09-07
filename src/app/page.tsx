@@ -83,7 +83,10 @@ export default function HomePage() {
 
 	// 認証状態の監視
 	useEffect(() => {
-		console.log('認証状態監視開始');
+		console.log('=== 認証初期化開始 ===');
+		console.log('現在のドメイン:', window.location.hostname);
+		console.log('URL:', window.location.href);
+		
 		const auth = getFirebaseAuth();
 		if (!auth) {
 			console.error('Firebase認証の初期化に失敗しました');
@@ -91,33 +94,46 @@ export default function HomePage() {
 			return;
 		}
 		
-		let hasProcessedRedirect = false;
+		console.log('Firebase認証初期化成功');
 		
 		// 認証状態の監視を開始
 		const unsubscribe = onAuthStateChanged(auth, (user) => {
-			console.log('認証状態変更:', user ? 'ログイン済み' : '未ログイン', user?.email);
-			setUser(user);
-			// リダイレクト処理が完了していない場合のみauthLoadingをfalseに
-			if (hasProcessedRedirect) {
-				setAuthLoading(false);
+			console.log('=== 認証状態変更 ===');
+			console.log('user:', user);
+			console.log('ログイン状態:', user ? 'ログイン済み' : '未ログイン');
+			if (user) {
+				console.log('UID:', user.uid);
+				console.log('メール:', user.email);
+				console.log('表示名:', user.displayName);
+				console.log('写真URL:', user.photoURL);
 			}
+			setUser(user);
+			setAuthLoading(false);
 		});
 		
 		// リダイレクト認証の結果をチェック
 		getRedirectResult(auth)
 			.then((result) => {
-				hasProcessedRedirect = true;
+				console.log('=== リダイレクト結果 ===');
+				console.log('result:', result);
 				if (result) {
-					console.log("リダイレクト認証成功:", result.user.email);
+					console.log("✅ リダイレクト認証成功");
+					console.log("ユーザー:", result.user);
+					console.log("UID:", result.user.uid);
+					console.log("メール:", result.user.email);
+					console.log("表示名:", result.user.displayName);
+					// 明示的にユーザーを設定
 					setUser(result.user);
+					setAuthLoading(false);
 				} else {
-					console.log("リダイレクト認証なし（通常のページロード）");
+					console.log("ℹ️ リダイレクト認証なし（通常のページロード）");
 				}
-				setAuthLoading(false);
 			})
 			.catch((error) => {
-				hasProcessedRedirect = true;
-				console.error("リダイレクト認証エラー:", error);
+				console.log('=== リダイレクト認証エラー ===');
+				console.error("エラー詳細:", error);
+				console.error("エラーコード:", error?.code);
+				console.error("エラーメッセージ:", error?.message);
 				setAuthError(`認証エラー: ${error.message}`);
 				setAuthLoading(false);
 			});
