@@ -5,5 +5,7 @@
       "path": "/api/cron/daily-aggregation",
       "schedule": "0 15 * * *"
     }
-  ]
+  ],
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next"
 }
