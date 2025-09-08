@@ -156,24 +156,67 @@ export default function HomePage() {
 		const auth = getFirebaseAuth();
 		const provider = getGoogleProvider();
 		
-		if (!auth || !provider) {
-			console.error('Firebase初期化失敗');
+		if (!auth) {
+			console.error('Firebase Auth初期化失敗');
 			setAuthError('Firebase認証の初期化に失敗しました');
 			setAuthLoading(false);
 			return;
 		}
 		
+		if (!provider) {
+			console.error('Google Provider初期化失敗');
+			setAuthError('Googleプロバイダーの初期化に失敗しました');
+			setAuthLoading(false);
+			return;
+		}
+		
 		try {
+			console.log('Firebase認証状況:', {
+				authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+				apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY ? '設定済み' : '未設定',
+				currentDomain: window.location.hostname,
+				currentOrigin: window.location.origin
+			});
+			
 			console.log('ポップアップ認証実行中...');
 			const result = await signInWithPopup(auth, provider);
-			console.log('✅ ポップアップ認証成功:', result.user.email);
+			
+			if (!result) {
+				throw new Error('認証結果がnullまたはundefinedです');
+			}
+			
+			if (!result.user) {
+				throw new Error('ユーザー情報が取得できませんでした');
+			}
+			
+			console.log('✅ ポップアップ認証成功:', {
+				email: result.user.email,
+				uid: result.user.uid,
+				displayName: result.user.displayName,
+				photoURL: result.user.photoURL
+			});
+			
 			setUser(result.user);
 			setAuthLoading(false);
 		} catch (error: unknown) {
 			console.error('ポップアップ認証エラー:', error);
 			const errorCode = (error as { code?: string })?.code;
 			const errorMsg = (error as { message?: string })?.message;
-			setAuthError(`ポップアップログインエラー: ${errorCode}`);
+			
+			let userFriendlyMessage = '';
+			if (errorCode === 'auth/popup-closed-by-user') {
+				userFriendlyMessage = 'ポップアップがユーザーによって閉じられました';
+			} else if (errorCode === 'auth/popup-blocked') {
+				userFriendlyMessage = 'ポップアップがブロックされました。ブラウザの設定を確認してください';
+			} else if (errorCode === 'auth/unauthorized-domain') {
+				userFriendlyMessage = 'このドメイン（' + window.location.hostname + '）は認証が許可されていません';
+			} else if (errorCode === 'auth/operation-not-allowed') {
+				userFriendlyMessage = 'Google認証が有効になっていません';
+			} else {
+				userFriendlyMessage = `ポップアップログインエラー: ${errorCode || 'unknown'} - ${errorMsg || 'undefined error'}`;
+			}
+			
+			setAuthError(userFriendlyMessage);
 			setAuthLoading(false);
 		}
 	};
@@ -360,20 +403,44 @@ export default function HomePage() {
 							<strong>ログインエラー:</strong> {authError}
 						</div>
 					)}
-					{process.env.NODE_ENV === 'development' && (
-						<details className='mb-4 text-xs text-gray-500'>
-							<summary className='cursor-pointer hover:text-gray-700'>開発者向け情報</summary>
-							<div className='mt-2 p-2 bg-gray-100 rounded text-left'>
-								<p>Firebase設定状況:</p>
-								<ul className='list-disc list-inside'>
-									<li>API Key: {process.env.NEXT_PUBLIC_FIREBASE_API_KEY ? '設定済み' : '❌未設定'}</li>
-									<li>Auth Domain: {process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ? '設定済み' : '❌未設定'}</li>
-									<li>Project ID: {process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ? '設定済み' : '❌未設定'}</li>
-									<li>App ID: {process.env.NEXT_PUBLIC_FIREBASE_APP_ID ? '設定済み' : '❌未設定'}</li>
+					<details className='mb-4 text-xs text-gray-500'>
+						<summary className='cursor-pointer hover:text-gray-700'>🔍 Firebase設定状況を確認</summary>
+						<div className='mt-2 p-2 bg-gray-100 rounded text-left'>
+							<p className='font-semibold mb-2'>Firebase設定状況:</p>
+							<ul className='list-disc list-inside space-y-1'>
+								<li>API Key: {process.env.NEXT_PUBLIC_FIREBASE_API_KEY ? '✅設定済み' : '❌未設定'}</li>
+								<li>Auth Domain: {process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ? '✅設定済み' : '❌未設定'} 
+									{process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN && <span className='text-gray-400'>({process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN})</span>}
+								</li>
+								<li>Project ID: {process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ? '✅設定済み' : '❌未設定'}
+									{process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID && <span className='text-gray-400'>({process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID})</span>}
+								</li>
+								<li>Storage Bucket: {process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ? '✅設定済み' : '❌未設定'}</li>
+								<li>Messaging Sender ID: {process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ? '✅設定済み' : '❌未設定'}</li>
+								<li>App ID: {process.env.NEXT_PUBLIC_FIREBASE_APP_ID ? '✅設定済み' : '❌未設定'}</li>
+							</ul>
+							<div className='mt-2 pt-2 border-t border-gray-300'>
+								<p className='font-semibold mb-1'>環境情報:</p>
+								<ul className='list-disc list-inside space-y-1'>
+									<li>現在のドメイン: <span className='text-gray-600'>{typeof window !== 'undefined' ? window.location.hostname : 'server'}</span></li>
+									<li>現在のURL: <span className='text-gray-600'>{typeof window !== 'undefined' ? window.location.origin : 'server'}</span></li>
+									<li>Node環境: <span className='text-gray-600'>{process.env.NODE_ENV || 'unknown'}</span></li>
 								</ul>
 							</div>
-						</details>
-					)}
+							<div className='mt-2 pt-2 border-t border-gray-300'>
+								<p className='font-semibold mb-1'>⚠️ Firebase認証が失敗する場合:</p>
+								<ol className='list-decimal list-inside space-y-1 text-gray-700'>
+									<li>Firebase Consoleで認証済みドメインに以下を追加:
+										<ul className='ml-4 mt-1'>
+											<li>• aquariumotion.vercel.app</li>
+											<li>• *.vercel.app</li>
+										</ul>
+									</li>
+									<li>Google認証プロバイダーが有効になっているか確認</li>
+								</ol>
+							</div>
+						</div>
+					</details>
 					<div className='space-y-3'>
 						<Button
 							onClick={signInWithGoogle}

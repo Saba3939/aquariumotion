@@ -1,5 +1,5 @@
 {
-  "alias": ["aquariumotion.vercel.app"],
+  "alias": "aquariumotion.vercel.app",
   "crons": [
     {
       "path": "/api/cron/daily-aggregation",

@@ -28,14 +28,43 @@ function initializeFirebase() {
 	if (!app) {
 		try {
 			console.log('Firebase初期化開始');
+			console.log('Firebase設定:', {
+				apiKey: firebaseConfig.apiKey ? '設定済み' : '未設定',
+				authDomain: firebaseConfig.authDomain,
+				projectId: firebaseConfig.projectId,
+				appId: firebaseConfig.appId ? '設定済み' : '未設定'
+			});
+			
+			// 必須設定の確認
+			if (!firebaseConfig.apiKey) {
+				throw new Error('NEXT_PUBLIC_FIREBASE_API_KEYが設定されていません');
+			}
+			if (!firebaseConfig.authDomain) {
+				throw new Error('NEXT_PUBLIC_FIREBASE_AUTH_DOMAINが設定されていません');
+			}
+			if (!firebaseConfig.projectId) {
+				throw new Error('NEXT_PUBLIC_FIREBASE_PROJECT_IDが設定されていません');
+			}
+			
 			app = initializeApp(firebaseConfig);
 			db = getFirestore(app);
 			auth = getAuth(app);
+			
 			googleProvider = new GoogleAuthProvider();
+			
+			// Vercelドメインのための設定
+			googleProvider.setCustomParameters({
+				prompt: 'select_account',
+				hd: '*' // すべてのドメインを許可
+			});
 			
 			console.log('Firebase初期化成功 - Project ID:', firebaseConfig.projectId);
 		} catch (error) {
 			console.error('Firebase初期化エラー:', error);
+			app = null;
+			db = null;
+			auth = null;
+			googleProvider = null;
 			return null;
 		}
 	}
