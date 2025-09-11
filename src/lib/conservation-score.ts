@@ -35,19 +35,19 @@ export function calculateConservationScore(usage: UsageData): ConservationResult
   const waterUsage = usage.waterUsage || 0;
   const electricityUsage = usage.electricityUsage || 0;
 
-  // 削減率計算（0-1の範囲）
-  const waterReduction = Math.max(0, (BASELINE_CONFIG.WATER - waterUsage) / BASELINE_CONFIG.WATER);
-  const electricityReduction = Math.max(0, (BASELINE_CONFIG.ELECTRICITY - electricityUsage) / BASELINE_CONFIG.ELECTRICITY);
+  // 削減率計算（負の値も許可）
+  const waterReduction = (BASELINE_CONFIG.WATER - waterUsage) / BASELINE_CONFIG.WATER;
+  const electricityReduction = (BASELINE_CONFIG.ELECTRICITY - electricityUsage) / BASELINE_CONFIG.ELECTRICITY;
 
-  // スコア計算（0-100点）
+  // スコア計算（負の値も許可）
   const conservationScore = Math.round((waterReduction + electricityReduction) * 50);
 
-  // 詳細データ計算
-  const waterSaved = Math.max(0, BASELINE_CONFIG.WATER - waterUsage);
-  const electricitySaved = Math.max(0, BASELINE_CONFIG.ELECTRICITY - electricityUsage);
+  // 詳細データ計算（負の値も許可）
+  const waterSaved = BASELINE_CONFIG.WATER - waterUsage;
+  const electricitySaved = BASELINE_CONFIG.ELECTRICITY - electricityUsage;
 
   return {
-    conservationScore: Math.max(0, Math.min(100, conservationScore)), // 0-100の範囲に制限
+    conservationScore: Math.max(-100, Math.min(100, conservationScore)), // -100から100の範囲に制限
     waterReduction,
     electricityReduction,
     details: {
@@ -80,7 +80,8 @@ export function getScoreLevel(score: number): string {
   if (score >= 60) return 'good';
   if (score >= 40) return 'average';
   if (score >= 20) return 'poor';
-  return 'very_poor';
+  if (score >= 0) return 'very_poor';
+  return 'wasteful'; // 負のスコア用
 }
 
 /**
@@ -97,6 +98,7 @@ export function getScoreMessage(score: number): string {
     average: '平均的な節約です。もう少し頑張ってみましょう',
     poor: '節約を意識してみましょう。小さな改善から始められます',
     very_poor: '節約に取り組んで、魚たちの環境を改善しましょう',
+    wasteful: '使いすぎです！魚たちが困っています。すぐに改善が必要です⚠️',
   };
 
   return messages[level];

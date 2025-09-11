@@ -1,11 +1,11 @@
 # タスク優先順位・実行順序
 
-## Phase 1: ESP・ハードウェア基盤 (最優先)
-1. **04-firestore-schema.md** - データベース設計（デバイス・使用量データ構造）
-2. **09-firebase-admin-setup.md** - Firebase Admin SDK設定
-3. **16-device-registration.md** - デバイス登録システム
-4. **01-api-log-usage.md** - 使用量データ記録API
-5. **13-data-validation.md** - データ検証・エラーハンドリング
+## Phase 1: ESP・ハードウェア基盤 ✅ 完了 (2025/01/15)
+1. **04-firestore-schema.md** - データベース設計（デバイス・使用量データ構造） ✅
+2. **09-firebase-admin-setup.md** - Firebase Admin SDK設定 ✅
+3. **16-device-registration.md** - デバイス登録システム ✅ **新規完了**
+4. **01-api-log-usage.md** - 使用量データ記録API ✅
+5. **13-data-validation.md** - データ検証・エラーハンドリング ✅
 
 ## Phase 2: 自動化・バックエンドロジック
 6. **10-conservation-score-logic.md** - 節約スコア計算ロジック
@@ -38,3 +38,31 @@
 - 03, 10 → 01 に依存  
 - 02, 06-08 → 03, 10 に依存
 - 17 → 02, 08 に依存
+
+## 最新実装状況 (2025/01/15)
+
+### Phase 1 完了内容
+**16. デバイス登録システム** が完了し、以下の機能が実装されました：
+
+#### バックエンド
+- ESP32デバイス登録API (`/api/register-device`)
+- デバイス・ユーザー紐付けAPI (`/api/link-device`)
+- デバイス情報取得API (`/api/user-devices`, `/api/device-details`)
+- デバイス登録解除API (`/api/unlink-device`)
+- 完全なFirestore統合とセキュリティ実装
+
+#### フロントエンド
+- メイン画面「デバイス管理」タブ追加
+- デバイス登録画面（8桁PINコード入力）
+- 登録済みデバイス管理画面
+- リアルタイム状態監視（オンライン/オフライン）
+- デバイス解除機能
+
+#### セキュリティ
+- Firebase ID Token認証
+- デバイス所有者検証
+- 安全な登録・解除フロー
+
+これによりESP32デバイスからのデータ収集基盤が完全に整い、**Phase 2の自動化・バックエンドロジック実装**に進む準備が整いました。
+
+詳細実装内容: [18-device-integration-implementation.md](./18-device-integration-implementation.md)

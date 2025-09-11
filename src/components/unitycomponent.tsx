@@ -16,6 +16,7 @@ interface Aquarium {
 	enviromentLevel: number;
 	conservationMeter: number;
 	lastUpdated: Timestamp;
+	unhatchedEggCount: number; // たまごの孵化システム用
 }
 
 interface UnityComponentProps {
@@ -78,6 +79,7 @@ function UnityComponent({ fishData, aquariumData }: UnityComponentProps) {
 				const aquariumJson = JSON.stringify({
 					enviromentLevel: aquariumData.enviromentLevel,
 					conservationMeter: aquariumData.conservationMeter,
+					unhatchedEggCount: aquariumData.unhatchedEggCount || 0, // たまごの数を追加
 					lastUpdated: safeTimestampToISO(aquariumData.lastUpdated), // 安全な変換
 				});
 
@@ -111,6 +113,7 @@ function UnityComponent({ fishData, aquariumData }: UnityComponentProps) {
 				const aquariumJson = JSON.stringify({
 					enviromentLevel: aquariumData.enviromentLevel,
 					conservationMeter: aquariumData.conservationMeter,
+					unhatchedEggCount: aquariumData.unhatchedEggCount || 0, // たまごの数を追加
 					lastUpdated: safeTimestampToISO(aquariumData.lastUpdated), // 安全な変換
 				});
 
