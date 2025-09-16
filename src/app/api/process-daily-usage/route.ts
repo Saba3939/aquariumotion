@@ -38,6 +38,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 強制実行フラグをチェック
+    const forceProcess = request.headers.get('X-Force-Process') === 'true';
+
+    // 今日の日付を取得
+    const today = new Date();
+    const todayString = today.toISOString().split('T')[0]; // YYYY-MM-DD
+
+    // ユーザー情報を取得または作成
+    const userRef = db.collection('users').doc(userId);
+    const userDoc = await userRef.get();
+    
+    let lastLogin = '';
+    let isFirstLoginToday = true;
+    
+    if (userDoc.exists) {
+      const userData = userDoc.data()!;
+      lastLogin = userData.lastLogin || '';
+      isFirstLoginToday = lastLogin !== todayString;
+    }
+
+    // 強制実行の場合は初回ログインフラグを強制的にtrueにする
+    if (forceProcess) {
+      isFirstLoginToday = true;
+      console.log(`Force processing enabled for user ${userId}`);
+    }
+
     // 現在の水族館データを取得
     const aquariumRef = db.collection('aquariums').doc(userId);
     const aquariumDoc = await aquariumRef.get();
@@ -53,146 +79,211 @@ export async function POST(request: NextRequest) {
       await aquariumRef.set(initialAquariumData);
     }
 
-    // 未処理のdailyUsageデータを取得（インデックス不要なシンプルクエリ）
-    const dailyUsageSnapshot = await db.collection('dailyUsage')
-      .where('userId', '==', userId)
-      .get();
-
-    // conservationScoreが未設定のドキュメントのみをフィルタリングし、日付順にソート
-    const unprocessedDocs = dailyUsageSnapshot.docs
-      .filter(doc => {
-        const data = doc.data();
-        return data.conservationScore === undefined || data.conservationScore === null;
-      })
-      .sort((a, b) => {
-        const dateA = a.data().date || '';
-        const dateB = b.data().date || '';
-        return dateA.localeCompare(dateB); // 日付文字列で昇順ソート（YYYY-MM-DD形式）
-      });
-
-    if (unprocessedDocs.length === 0) {
-      // 処理するデータがない場合
-      return NextResponse.json(
-        createSuccessResponse({
-          message: '処理対象のデータがありませんでした',
-          processedCount: 0,
-          totalScoreAdded: 0
-        }),
-        { status: 200 }
-      );
-    }
-
+    const processedDates: string[] = [];
     let totalScoreAdded = 0;
     let processedCount = 0;
-    const processedDates: string[] = [];
 
-    // バッチ処理で各dailyUsageデータを処理
-    const batch = db.batch();
-    
-    for (const doc of unprocessedDocs) {
-      const dailyData = doc.data();
-      const waterUsage = dailyData.waterUsage || 0;
-      const electricityUsage = dailyData.electricityUsage || 0;
+    // その日初回ログインの場合のみ、前日までの未処理データを一括処理
+    if (isFirstLoginToday) {
+      console.log(`Initial login today for user ${userId}, processing previous days...`);
+      
+      // インデックス不要なシンプルクエリ: userIdのみで取得
+      const dailyUsageSnapshot = await db.collection('dailyUsage')
+        .where('userId', '==', userId)
+        .get();
 
-      // 節約スコアを計算
-      const conservationResult = calculateConservationScore({
-        waterUsage,
-        electricityUsage
+      // クライアントサイドで日付フィルタリングと未処理チェック
+      const unprocessedDocs = dailyUsageSnapshot.docs.filter(doc => {
+        const data = doc.data();
+        const docDate = data.date || '';
+        // 今日より前の日付 かつ conservationScoreが未設定
+        return docDate < todayString && (data.conservationScore === undefined || data.conservationScore === null);
       });
 
-      // dailyUsageドキュメントにスコアを保存
-      batch.update(doc.ref, {
-        conservationScore: conservationResult.conservationScore
-      });
+      if (unprocessedDocs.length > 0) {
+        console.log(`Found ${unprocessedDocs.length} unprocessed daily usage records`);
 
-      totalScoreAdded += conservationResult.conservationScore;
-      processedCount++;
-      processedDates.push(dailyData.date);
+        // 日付ごとにグループ化して総合スコアを算出
+        const dateGroups = new Map<string, { docs: FirebaseFirestore.QueryDocumentSnapshot[]; totalWater: number; totalElectricity: number }>();
+        
+        for (const doc of unprocessedDocs) {
+          const dailyData = doc.data();
+          const date = dailyData.date;
+          
+          if (!dateGroups.has(date)) {
+            dateGroups.set(date, { docs: [], totalWater: 0, totalElectricity: 0 });
+          }
+          
+          const dateGroup = dateGroups.get(date)!;
+          dateGroup.docs.push(doc);
+          dateGroup.totalWater += dailyData.waterUsage || 0;
+          dateGroup.totalElectricity += dailyData.electricityUsage || 0;
+        }
+
+        const batch = db.batch();
+        
+        // 日付順にソートして処理
+        const sortedDates = Array.from(dateGroups.keys()).sort();
+        
+        for (const date of sortedDates) {
+          const dateGroup = dateGroups.get(date)!;
+          
+          // その日の水と電気の合計使用量で総合スコアを計算
+          const conservationResult = calculateConservationScore({
+            waterUsage: dateGroup.totalWater,
+            electricityUsage: dateGroup.totalElectricity,
+          });
+
+          // その日の全dailyUsageドキュメントに同じ総合スコアを設定
+          for (const doc of dateGroup.docs) {
+            batch.update(doc.ref, {
+              conservationScore: conservationResult.conservationScore,
+              totalDailyWater: dateGroup.totalWater,
+              totalDailyElectricity: dateGroup.totalElectricity,
+              processedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+          }
+
+          totalScoreAdded += conservationResult.conservationScore;
+          processedCount += dateGroup.docs.length;
+          processedDates.push(date);
+        }
+
+        // バッチ実行
+        await batch.commit();
+        console.log(`Processed ${processedCount} records across ${processedDates.length} dates`);
+      }
     }
 
-    // バッチ実行
-    await batch.commit();
+    // 水族館の節約メーターに累積スコアを加算（初回ログイン時のみ）
+    if (isFirstLoginToday && totalScoreAdded !== 0) {
+      const currentAquarium = aquariumDoc.exists ? aquariumDoc.data() : { conservationMeter: 50, enviromentLevel: 0 };
+      const currentConservationMeter = currentAquarium?.conservationMeter || 50;
+      const currentEnvironmentLevel = currentAquarium?.enviromentLevel || 0;
 
-    // 水族館の節約メーターに累積スコアを加算
-    const currentAquarium = aquariumDoc.exists ? aquariumDoc.data() : { conservationMeter: 50, enviromentLevel: 0 };
-    const currentConservationMeter = currentAquarium?.conservationMeter || 50;
-    const currentEnvironmentLevel = currentAquarium?.enviromentLevel || 0;
+      // 新しい節約メーター値を計算
+      let newConservationMeter = currentConservationMeter + totalScoreAdded;
+      let newEnvironmentLevel = currentEnvironmentLevel;
+      let environmentChanged = false;
+      const meterResets: Array<{resetTo: number, reason: string, message: string}> = [];
+      let fedFishCount = 0;
+      let newEggCount = 0;
+      
+      // 自動餌やりロジック（conservationMeter ≥ 100で実行）
+      if (newConservationMeter >= 100) {
+        console.log(`Conservation meter ${newConservationMeter} >= 100, triggering automatic feeding`);
+        
+        // 魚のデータを取得
+        const fishSnapshot = await aquariumRef.collection('fish').get();
 
-    // 新しい節約メーター値を計算
-    let newConservationMeter = currentConservationMeter + totalScoreAdded;
-    let newEnvironmentLevel = currentEnvironmentLevel;
-    let environmentChanged = false;
-    const meterResets: Array<{resetTo: number, reason: string, message: string}> = [];
-    
-    // メーターの上限・下限処理（複数回のリセットに対応）
-    while (newConservationMeter <= 0 || newConservationMeter >= 100) {
-      if (newConservationMeter <= 0) {
-        // 環境レベルを-5し、メーターを50にリセット
-        newEnvironmentLevel = Math.max(0, newEnvironmentLevel - 5);
-        const deficit = Math.abs(newConservationMeter);
-        newConservationMeter = Math.max(0, 50 - deficit);
-        environmentChanged = true;
-        meterResets.push({
-          resetTo: newConservationMeter,
-          reason: 'zero',
-          message: '節約メーターがゼロを下回ったため、環境レベルが低下し、メーターがリセットされました'
-        });
-      } else if (newConservationMeter >= 100) {
-        // 環境レベルを+5し、メーターを50にリセット
-        newEnvironmentLevel = newEnvironmentLevel + 5;
-        const surplus = newConservationMeter - 100;
-        newConservationMeter = 50 + surplus;
-        environmentChanged = true;
-        meterResets.push({
-          resetTo: newConservationMeter,
-          reason: 'hundred',
-          message: '節約メーターが100に達したため、環境レベルが向上し、メーターがリセットされました！'
-        });
+        for (const fishDoc of fishSnapshot.docs) {
+          const fishData = fishDoc.data();
+          const currentEggMeter = fishData.eggMeter || 0;
+          const currentGrowthLevel = fishData.growthLevel || 1;
+          let newEggMeter = Math.min(3, currentEggMeter + 1); // 最大3
+          const newGrowthLevel = Math.min(10, currentGrowthLevel + 1); // 最大10
+
+          // 卵メーターが3に達した場合、卵を生成してリセット
+          if (newEggMeter === 3 && currentEggMeter < 3) {
+            newEggCount++;
+            newEggMeter = 0; // 卵メーターをリセット
+            console.log(`Fish ${fishData.fish_name || fishDoc.id} reached eggMeter 3, generating egg and resetting meter`);
+          }
+
+          // 魚のeggMeterを更新
+          await fishDoc.ref.update({
+            eggMeter: newEggMeter,
+            growthLevel: newGrowthLevel,
+            lastFed: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          fedFishCount++;
+        }
+
+        // 餌やり実行後、メーターから100を消費
+        newConservationMeter = newConservationMeter - 100;
+        console.log(`Fed ${fedFishCount} fish, generated ${newEggCount} eggs, meter reduced to ${newConservationMeter}`);
       }
       
-      // 無限ループ防止
-      if (meterResets.length > 10) {
-        console.warn('Too many meter resets, breaking loop');
-        break;
+      // 環境レベル調整処理（餌やり後も含む）
+      while (newConservationMeter <= 0 || newConservationMeter >= 100) {
+        if (newConservationMeter <= 0) {
+          // 環境レベルを-5し、メーターを50にリセット（0以下の部分は無視）
+          newEnvironmentLevel = Math.max(0, newEnvironmentLevel - 5);
+          newConservationMeter = 50;
+          environmentChanged = true;
+          meterResets.push({
+            resetTo: newConservationMeter,
+            reason: 'zero',
+            message: '節約メーターがゼロを下回ったため、環境レベルが低下し、メーターが50にリセットされました'
+          });
+        } else if (newConservationMeter >= 100) {
+          // 環境レベルを+5し、残りの値を保持（50にリセットしない）
+          newEnvironmentLevel = newEnvironmentLevel + 5;
+          newConservationMeter = newConservationMeter - 100;
+          environmentChanged = true;
+          meterResets.push({
+            resetTo: newConservationMeter,
+            reason: 'hundred',
+            message: '節約メーターが100に達したため、環境レベルが向上しました！'
+          });
+        }
+        
+        // 無限ループ防止
+        if (meterResets.length > 10) {
+          console.warn('Too many meter resets, breaking loop');
+          break;
+        }
       }
+
+      // 最終的にメーターを0-100の範囲に制限
+      newConservationMeter = Math.max(0, Math.min(100, newConservationMeter));
+
+      // 水族館データを更新
+      const updateData: {
+        conservationMeter: number;
+        lastUpdated: admin.firestore.FieldValue;
+        enviromentLevel?: number;
+        unhatchedEggCount?: number;
+        lastFeedingDate?: string;
+      } = {
+        conservationMeter: newConservationMeter,
+        lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+      };
+      
+      if (environmentChanged) {
+        updateData.enviromentLevel = newEnvironmentLevel;
+      }
+      
+      // 餌やりを実行した場合、たまご数と餌やり日付を更新
+      if (fedFishCount > 0) {
+        const currentUnhatchedEggCount = currentAquarium?.unhatchedEggCount || 0;
+        updateData.unhatchedEggCount = currentUnhatchedEggCount + newEggCount;
+        updateData.lastFeedingDate = todayString;
+      }
+      
+      await aquariumRef.update(updateData);
     }
 
-    // 最終的にメーターを0-100の範囲に制限
-    newConservationMeter = Math.max(0, Math.min(100, newConservationMeter));
-
-    // 水族館データを更新
-    const updateData: {
-      conservationMeter: number;
-      lastUpdated: admin.firestore.FieldValue;
-      enviromentLevel?: number;
-    } = {
-      conservationMeter: newConservationMeter,
-      lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
-    };
-    
-    if (environmentChanged) {
-      updateData.enviromentLevel = newEnvironmentLevel;
-    }
-    
-    await aquariumRef.update(updateData);
+    // ユーザーのlastLoginを今日の日付に更新
+    await userRef.set({
+      lastLogin: todayString,
+      lastLoginTime: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
 
     // レスポンスデータを構築
     const responseData = {
-      message: 'dailyUsageデータの処理が完了しました',
+      message: forceProcess 
+        ? `[デバッグ] 強制実行により使用量データを処理しました` 
+        : isFirstLoginToday 
+          ? `今日初回ログインのため、過去の使用量データを処理しました` 
+          : '本日は既にログイン済みです',
+      isFirstLoginToday: forceProcess ? true : isFirstLoginToday,
       processedCount,
       processedDates,
-      totalScoreAdded,
-      previousMeter: currentConservationMeter,
-      newMeter: newConservationMeter,
-      environmentLevel: environmentChanged ? {
-        previous: currentEnvironmentLevel,
-        new: newEnvironmentLevel,
-        change: newEnvironmentLevel - currentEnvironmentLevel,
-        message: newEnvironmentLevel > currentEnvironmentLevel 
-          ? '節約の成果により環境レベルが向上しました！' 
-          : '節約が不足して環境レベルが低下しました'
-      } : undefined,
-      meterResets: meterResets.length > 0 ? meterResets : undefined
+      totalScoreAdded: isFirstLoginToday ? totalScoreAdded : 0,
+      aquariumUpdated: isFirstLoginToday && totalScoreAdded !== 0,
+      forceProcessed: forceProcess,
     };
 
     return NextResponse.json(

@@ -50,21 +50,50 @@ function UnityComponent({ fishData, aquariumData }: UnityComponentProps) {
 			}
 		};
 
-		// 初期サイズ設定
-		handleResize();
+		// 初期サイズ設定（少し遅延させる）
+		const timeoutId = setTimeout(handleResize, 100);
 
 		// リサイズ監視
-		window.addEventListener("resize", handleResize);
+		const handleWindowResize = () => {
+			requestAnimationFrame(handleResize);
+		};
+		window.addEventListener("resize", handleWindowResize, { passive: true });
 
 		// ResizeObserver for more accurate container size tracking
-		const resizeObserver = new ResizeObserver(handleResize);
-		if (containerRef.current) {
-			resizeObserver.observe(containerRef.current);
+		let resizeObserver: ResizeObserver | null = null;
+		if (typeof ResizeObserver !== 'undefined') {
+			try {
+				resizeObserver = new ResizeObserver((entries) => {
+					// requestAnimationFrameで次のフレームで実行
+					requestAnimationFrame(() => {
+						for (const entry of entries) {
+							if (entry.target === containerRef.current) {
+								handleResize();
+								break;
+							}
+						}
+					});
+				});
+				
+				// DOM要素が存在する場合のみ監視開始
+				if (containerRef.current) {
+					resizeObserver.observe(containerRef.current);
+				}
+			} catch (error) {
+				console.warn('ResizeObserver initialization failed:', error);
+			}
 		}
 
 		return () => {
-			window.removeEventListener("resize", handleResize);
-			resizeObserver.disconnect();
+			clearTimeout(timeoutId);
+			window.removeEventListener("resize", handleWindowResize);
+			if (resizeObserver) {
+				try {
+					resizeObserver.disconnect();
+				} catch (error) {
+					console.warn('ResizeObserver disconnect failed:', error);
+				}
+			}
 		};
 	}, []);
 

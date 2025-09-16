@@ -5,6 +5,63 @@ import { calculateConservationScore, getScoreLevel, getScoreMessage } from '@/li
 import { createSuccessResponse, createErrorResponse } from '@/lib/validation';
 
 /**
+ * 全ての魚の卵メーターを1増加させるヘルパー関数（簡単版）
+ */
+async function increaseFishEggMeters(userId: string): Promise<{ success: boolean; updatedFishCount: number }> {
+  console.log(`🥚 卵メーター増加処理開始: userId=${userId}`);
+  
+  const db = getDB();
+  if (!db) {
+    console.error('❌ データベース接続失敗');
+    throw new Error('データベース接続エラー');
+  }
+
+  try {
+    // ユーザーの魚データを取得
+    console.log('📡 魚データ取得中...');
+    const fishCollectionRef = db.collection('aquariums').doc(userId).collection('fish');
+    const fishSnapshot = await fishCollectionRef.get();
+
+    console.log(`🐟 取得した魚の数: ${fishSnapshot.size}`);
+
+    if (fishSnapshot.empty) {
+      console.log('⏭️ 魚がいないため処理をスキップ');
+      return { success: true, updatedFishCount: 0 };
+    }
+
+    // バッチ更新を使って全ての魚の卵メーターを更新
+    console.log('⚡ バッチ更新開始...');
+    const batch = db.batch();
+    let updatedCount = 0;
+
+    fishSnapshot.docs.forEach((fishDoc) => {
+      const fishData = fishDoc.data();
+      const currentEggMeter = fishData.eggMeter || 0;
+      const newEggMeter = Math.min(currentEggMeter + 1, 3);
+
+      console.log(`🐟 魚 ${fishDoc.id}: 卵メーター ${currentEggMeter} → ${newEggMeter}`);
+
+      batch.update(fishDoc.ref, {
+        eggMeter: newEggMeter,
+        lastEggMeterIncrease: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      updatedCount++;
+    });
+
+    console.log('💾 バッチコミット実行中...');
+    await batch.commit();
+    console.log(`✅ 卵メーター増加完了！対象魚数: ${updatedCount}`);
+    
+    return { success: true, updatedFishCount: updatedCount };
+
+  } catch (error) {
+    console.error('❌ 卵メーター増加処理でエラー:', error);
+    throw error;
+  }
+}
+
+/**
  * 節約スコアを水族館の節約メーターに加算するAPI
  * POST /api/add-conservation-score
  */
@@ -86,6 +143,8 @@ export async function POST(request: NextRequest) {
     let environmentChanged = false;
     let meterReset = false;
     let resetReason = '';
+    let eggMeterUpdated = false;
+    let eggMeterUpdateCount = 0;
     
     if (newConservationMeter <= 0 && currentConservationMeter > 0) {
       // 節約メーターがゼロになった瞬間に環境レベルを-5し、メーターを50にリセット
@@ -96,11 +155,32 @@ export async function POST(request: NextRequest) {
       resetReason = 'zero';
     } else if (newConservationMeter >= 100 && currentConservationMeter < 100) {
       // 節約メーターが100になった瞬間に環境レベルを+5し、メーターを50にリセット
+      console.log(`✅ 節約メーターが100に達しました！現在値: ${currentConservationMeter} → 新値: ${newConservationMeter}`);
+      
       newEnvironmentLevel = currentEnvironmentLevel + 5;
       newConservationMeter = 50;
       environmentChanged = true;
       meterReset = true;
       resetReason = 'hundred';
+
+      // 🐠 全ての魚の卵メーターを1増加
+      try {
+        console.log('🥚 卵メーター増加処理を開始...');
+        const eggMeterResult = await Promise.race([
+          increaseFishEggMeters(userId),
+          new Promise<{ success: boolean; updatedFishCount: number }>((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout after 10 seconds')), 10000)
+          )
+        ]);
+        console.log(`🥚 卵メーター増加完了: ${eggMeterResult.updatedFishCount}匹の魚が対象`);
+        eggMeterUpdated = eggMeterResult.success;
+        eggMeterUpdateCount = eggMeterResult.updatedFishCount;
+      } catch (error) {
+        console.error('卵メーター増加エラー:', error);
+        // エラーが発生しても環境レベル更新は続行
+        eggMeterUpdated = false;
+        eggMeterUpdateCount = 0;
+      }
     } else {
       // 通常時はメーターを0-100の範囲に制限
       newConservationMeter = Math.max(0, Math.min(100, newConservationMeter));
@@ -145,6 +225,11 @@ export async function POST(request: NextRequest) {
         resetTo: number;
         message: string;
       };
+      eggMeterUpdate?: {
+        updated: boolean;
+        fishCount: number;
+        message: string;
+      };
     }
     
     const responseData: ResponseData = {
@@ -183,6 +268,14 @@ export async function POST(request: NextRequest) {
       responseData.meterReset = {
         resetTo: 50,
         message
+      };
+    }
+
+    if (eggMeterUpdated) {
+      responseData.eggMeterUpdate = {
+        updated: eggMeterUpdated,
+        fishCount: eggMeterUpdateCount,
+        message: `🥚 ${eggMeterUpdateCount}匹の魚の卵メーターが1増加しました！`
       };
     }
     

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Home, Trophy, User, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import Image from "next/image";
 import { getFirebaseDB, getFirebaseAuth, getGoogleProvider } from "@/lib/firebase";
 import {
@@ -84,10 +85,8 @@ export default function HomePage() {
 	const [authLoading, setAuthLoading] = useState(true);
 	const [authError, setAuthError] = useState<string | null>(null);
 	const [showFishSelectionDialog, setShowFishSelectionDialog] = useState(false);
-	const [waterUsage, setWaterUsage] = useState<number>(0);
-	const [electricityUsage, setElectricityUsage] = useState<number>(0);
-	const [conservationLoading, setConservationLoading] = useState(false);
-	const [conservationMessage, setConservationMessage] = useState<string>('');
+	// 節約メーターの前回の値を記録するref（初期値-1で未初期化状態を表現）
+	const previousConservationMeter = useRef<number>(-1);
 	const router = useRouter();
 
 	// 認証状態の監視
@@ -360,29 +359,47 @@ export default function HomePage() {
 			if (res.ok && responseData.success) {
 				const data = responseData.data;
 				
-				// 処理されたデータがある場合のみメッセージを表示
-				if (data.processedCount > 0) {
-					let message = `🌟 ${data.processedCount}日分の使用量データを処理しました！\n`;
-					message += `節約スコア合計: ${data.totalScoreAdded >= 0 ? '+' : ''}${data.totalScoreAdded}点\n`;
-					message += `節約メーター: ${data.previousMeter} → ${data.newMeter}`;
+				// 初回ログインで処理されたデータがある場合のみメッセージを表示
+				if (data.isFirstLoginToday && data.processedCount > 0) {
+					let message = `🌟 今日初回ログインのため、${data.processedDates.length}日分の使用量データを一括処理しました！\n`;
+					message += `処理日: ${data.processedDates.join(', ')}\n`;
+					message += `総合節約スコア: ${data.totalScoreAdded >= 0 ? '+' : ''}${data.totalScoreAdded}点`;
 					
-					// 環境レベル変化の通知
-					if (data.environmentLevel) {
-						message += `\n\n🌍 ${data.environmentLevel.message}`;
-						message += `\n環境レベル: ${data.environmentLevel.previous} → ${data.environmentLevel.new}`;
+					console.log(message);
+					
+					// Toast通知を表示
+					const toastMessage = `🌟 ${data.processedDates.length}日分のデータを一括処理しました！`;
+					const toastDescription = `総合節約スコア: ${data.totalScoreAdded >= 0 ? '+' : ''}${data.totalScoreAdded}点`;
+					
+					if (data.totalScoreAdded > 0) {
+						toast.success(toastMessage, {
+							description: toastDescription,
+							duration: 5000,
+						});
+					} else if (data.totalScoreAdded < 0) {
+						toast.error(toastMessage, {
+							description: toastDescription,
+							duration: 5000,
+						});
+					} else {
+						toast.info(toastMessage, {
+							description: toastDescription,
+							duration: 4000,
+						});
 					}
-					
-					// メーターリセットの通知
-					if (data.meterResets && data.meterResets.length > 0) {
-						for (const reset of data.meterResets) {
-							message += `\n\n⚡ ${reset.message}`;
-						}
-					}
-					
-					setConservationMessage(message);
 					
 					// 水族館データを再取得して表示を更新
 					await fetchAquariumData();
+				} else if (data.isFirstLoginToday && data.processedCount === 0) {
+					// 初回ログインだが処理するデータがなかった場合
+					console.log('今日初回ログインですが、処理対象のデータがありませんでした');
+					toast.info('🌟 今日初回ログインです！', {
+						description: '処理対象の使用量データがありませんでした',
+						duration: 3000,
+					});
+				} else {
+					// 2回目以降のログイン
+					console.log('本日は既にログイン済みです');
 				}
 				
 				console.log('dailyUsage処理完了:', data);
@@ -394,6 +411,85 @@ export default function HomePage() {
 				console.error('dailyUsage処理エラー: ' + error.message);
 			} else {
 				console.error('dailyUsage処理エラー: 不明なエラー');
+			}
+		}
+	}, [user, fetchAquariumData]);;
+
+	// デバッグ用：強制的にdailyUsage処理を実行する関数
+	const forceProcessDailyUsage = useCallback(async () => {
+		if (!user) return;
+		
+		try {
+			const token = await user.getIdToken();
+			const res = await fetch('/api/process-daily-usage', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					Authorization: `Bearer ${token}`,
+					'X-Force-Process': 'true', // 強制実行フラグ
+				},
+				body: JSON.stringify({})
+			});
+			
+			const responseData = await res.json();
+			
+			if (res.ok && responseData.success) {
+				const data = responseData.data;
+				
+				let message = `🔧 [デバッグ] dailyUsage処理を強制実行しました！\n`;
+				message += `処理件数: ${data.processedCount}件\n`;
+				if (data.processedDates && data.processedDates.length > 0) {
+					message += `処理日: ${data.processedDates.join(', ')}\n`;
+				}
+				message += `総合節約スコア変化: ${data.totalScoreAdded >= 0 ? '+' : ''}${data.totalScoreAdded}点`;
+				
+				console.log(message);
+				
+				// Toast通知を表示
+				const toastMessage = `🔧 dailyUsage処理を強制実行`;
+				const toastDescription = data.processedCount > 0 
+					? `${data.processedCount}件処理 | スコア変化: ${data.totalScoreAdded >= 0 ? '+' : ''}${data.totalScoreAdded}点`
+					: '処理対象データなし';
+				
+				if (data.totalScoreAdded > 0) {
+					toast.success(toastMessage, {
+						description: toastDescription,
+						duration: 5000,
+					});
+				} else if (data.totalScoreAdded < 0) {
+					toast.error(toastMessage, {
+						description: toastDescription,
+						duration: 5000,
+					});
+				} else {
+					toast.info(toastMessage, {
+						description: toastDescription,
+						duration: 4000,
+					});
+				}
+				
+				// 水族館データを再取得して表示を更新
+				await fetchAquariumData();
+			} else {
+				console.log('強制dailyUsage処理結果:', responseData);
+				toast.error('🔧 デバッグ処理エラー', {
+					description: responseData.error || '不明なエラー',
+					duration: 5000,
+				});
+			}
+		} catch (error: unknown) {
+			if (error instanceof Error) {
+				console.error('強制dailyUsage処理エラー: ' + error.message);
+				toast.error('🔧 デバッグ処理エラー', {
+					description: error.message,
+					duration: 5000,
+				});
+			} else {
+				console.error('強制dailyUsage処理エラー: 不明なエラー');
+				toast.error('🔧 デバッグ処理エラー', {
+					description: '不明なエラーが発生しました',
+					duration: 5000,
+				});
 			}
 		}
 	}, [user, fetchAquariumData]);
@@ -514,97 +610,8 @@ export default function HomePage() {
 			}
 		}
 	};
-	// 節約スコアを加算する関数
-	const addConservationScore = async () => {
-		if (!user) return;
-		
-		if (waterUsage < 0 || electricityUsage < 0) {
-			setConservationMessage('使用量は0以上の値を入力してください');
-			return;
-		}
-		
-		setConservationLoading(true);
-		setConservationMessage('');
-		
-		try {
-			const token = await user.getIdToken();
-			const res = await fetch('/api/add-conservation-score', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					Authorization: `Bearer ${token}`,
-				},
-				body: JSON.stringify({ 
-					waterUsage, 
-					electricityUsage 
-				})
-			});
-			
-			// レスポンステキストを取得してJSONパースを試行
-			const responseText = await res.text();
-			console.log('API Response Status:', res.status);
-			console.log('API Response Text:', responseText);
-			
-			let responseData;
-			try {
-				responseData = JSON.parse(responseText);
-			} catch (jsonError) {
-				console.error('JSON Parse Error:', jsonError);
-				console.error('Response Text that failed to parse:', responseText);
-				throw new Error(`JSONパースエラー: ${responseText.substring(0, 100)}...`);
-			}
-			
-			if (!res.ok) {
-				throw new Error(responseData.error || 'API エラー');
-			}
-			
-			if (responseData.success) {
-				const { 
-					conservationScore, 
-					newMeter, 
-					scoreMessage, 
-					environmentLevel, 
-					meterReset 
-				} = responseData.data;
-				
-				// メッセージを構築
-				let message = `🌟 節約スコア ${conservationScore >= 0 ? '+' : ''}${conservationScore}点！ 新しい節約メーター: ${newMeter}\n${scoreMessage}`;
-				
-				// 環境レベル変化の通知
-				if (environmentLevel) {
-					message += `\n\n🌍 ${environmentLevel.message}`;
-					message += `\n環境レベル: ${environmentLevel.previous} → ${environmentLevel.new} (${environmentLevel.change >= 0 ? '+' : ''}${environmentLevel.change})`;
-				}
-				
-				// メーターリセットの通知
-				if (meterReset) {
-					message += `\n\n⚡ ${meterReset.message}`;
-				}
-				
-				setConservationMessage(message);
-				
-				// 水族館データを再取得して表示を更新
-				await fetchAquariumData();
-				
-				// 入力値をリセット
-				setWaterUsage(0);
-				setElectricityUsage(0);
-				
-				console.log('節約スコア加算成功:', responseData.data);
-			}
-		} catch (error: unknown) {
-			if (error instanceof Error) {
-				console.error('節約スコア加算API エラー: ' + error.message);
-				setConservationMessage(`エラー: ${error.message}`);
-			} else {
-				console.error('節約スコア加算API エラー: 不明なエラー');
-				setConservationMessage('節約スコアの追加中にエラーが発生しました');
-			}
-		} finally {
-			setConservationLoading(false);
-		}
-	};
-	// 卵メーターが3に達した魚から卵を生成
+	// 卵メーターが3に達した魚から卵を生成（手動実行用）
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	const generateEggs = useCallback(async () => {
 		if (!user) return;
 		
@@ -672,21 +679,20 @@ export default function HomePage() {
 		}
 	}, [user, fetchAquariumData, processDailyUsage]);
 
-	// 魚データの変更を監視して卵メーターが3に達した場合に自動で卵を生成
-	useEffect(() => {
-		if (!user || !fishData.length) return;
 
-		// eggMeterが3以上の魚があるかチェック
-		const fishWithFullEggMeter = fishData.filter(fish => fish.eggMeter >= 3);
+	// 節約メーターの監視（デバッグ用）
+	useEffect(() => {
+		if (!user || !aquariumData) return;
+
+		const currentMeter = aquariumData.conservationMeter;
 		
-		if (fishWithFullEggMeter.length > 0) {
-			console.log(`${fishWithFullEggMeter.length}匹の魚の卵メーターが満タンです:`, 
-				fishWithFullEggMeter.map(f => `${f.fish_name}(${f.eggMeter}/3)`).join(', '));
-			
-			// 自動で卵生成APIを呼び出し
-			generateEggs();
-		}
-	}, [fishData, user, generateEggs]); // fishDataとgenerateEggsの変更を監視
+		console.log(`=== 節約メーター監視（デバッグ用） ===`);
+		console.log(`現在の節約メーター: ${currentMeter}`);
+		console.log(`現在の環境レベル: ${aquariumData.enviromentLevel}`);
+		
+		// 前回の値を更新
+		previousConservationMeter.current = currentMeter;
+	}, [user, aquariumData]); // aquariumDataの変更を監視
 
 	// 認証ローディング中
 	if (authLoading) {
@@ -874,78 +880,6 @@ export default function HomePage() {
 									<p className='text-sm text-gray-600 mt-2'>
 										環境レベル {aquariumData?.enviromentLevel || 0} レベル
 									</p>
-									
-									{/* 節約スコア入力フォーム */}
-									<div className='mt-6 border-t border-gray-200 pt-6'>
-										<h3 className='text-lg font-medium text-gray-800 mb-4 flex items-center'>
-											💧⚡ 使用量を入力して節約スコアを獲得
-										</h3>
-										
-										{conservationMessage && (
-											<div className={`mb-4 p-3 rounded-lg text-sm ${
-												conservationMessage.startsWith('エラー') || conservationMessage.includes('入力してください')
-													? 'bg-red-100 border border-red-300 text-red-700'
-													: 'bg-green-100 border border-green-300 text-green-700'
-											}`}>
-												<div className='whitespace-pre-line'>{conservationMessage}</div>
-											</div>
-										)}
-										
-										<div className='grid grid-cols-1 md:grid-cols-2 gap-4 mb-4'>
-											<div>
-												<label className='block text-sm font-medium text-gray-700 mb-2'>
-													💧 水道使用量 (リットル/日)
-												</label>
-												<input
-													type='number'
-													min='0'
-													value={waterUsage}
-													onChange={(e) => setWaterUsage(Number(e.target.value))}
-													className='w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent'
-													placeholder='例: 80'
-													disabled={conservationLoading}
-												/>
-												<p className='text-xs text-gray-500 mt-1'>基準値: 100L/日</p>
-											</div>
-											
-											<div>
-												<label className='block text-sm font-medium text-gray-700 mb-2'>
-													⚡ 電気使用量 (kWh/日)
-												</label>
-												<input
-													type='number'
-													min='0'
-													step='0.1'
-													value={electricityUsage}
-													onChange={(e) => setElectricityUsage(Number(e.target.value))}
-													className='w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent'
-													placeholder='例: 4.5'
-													disabled={conservationLoading}
-												/>
-												<p className='text-xs text-gray-500 mt-1'>基準値: 5kWh/日</p>
-											</div>
-										</div>
-										
-										<Button
-											onClick={addConservationScore}
-											disabled={conservationLoading || (waterUsage === 0 && electricityUsage === 0)}
-											className='w-full bg-green-500 hover:bg-green-600 text-white py-3 text-lg font-medium'
-										>
-											{conservationLoading ? (
-												<div className='flex items-center justify-center space-x-2'>
-													<div className='animate-spin rounded-full h-4 w-4 border-b-2 border-white'></div>
-													<span>計算中...</span>
-												</div>
-											) : (
-												'🌟 節約スコアを計算・追加'
-											)}
-										</Button>
-										
-										<div className='mt-3 text-xs text-gray-500 text-center'>
-											<p>基準値より少ない使用量で節約スコアを獲得できます！</p>
-											<p>スコアが高いほど魚たちの環境が良くなります 🐟</p>
-										</div>
-									</div>
 								</div>
 
 								{/* 卵の孵化ステータス */}
@@ -988,6 +922,26 @@ export default function HomePage() {
 											)}
 										</div>
 									</div>
+								</div>
+
+								{/* デバッグ・テスト用ツール */}
+								<div className='bg-white rounded-2xl shadow-lg p-6'>
+									<h2 className='text-xl font-semibold text-gray-800 mb-4 flex items-center'>
+										🔧 デバッグ・テスト用ツール
+									</h2>
+									<div className="flex flex-wrap gap-3">
+										<Button
+											onClick={forceProcessDailyUsage}
+											variant="outline"
+											className="border-blue-300 text-blue-600 hover:bg-blue-50"
+											disabled={loading}
+										>
+											🔄 dailyUsage処理を強制実行
+										</Button>
+									</div>
+									<p className="text-sm text-gray-500 mt-2">
+										初回ログインチェックを無視してdailyUsage処理を強制実行します
+									</p>
 								</div>
 
 								{/* 魚の成長ステータス */}
