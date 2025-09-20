@@ -155,91 +155,95 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 水族館の節約メーターに累積スコアを加算（初回ログイン時のみ）
+    // 現在の水族館データを取得（常に実行）
+    const currentAquarium = aquariumDoc.exists ? aquariumDoc.data() : { conservationMeter: 50, enviromentLevel: 0 };
+
+    const currentConservationMeter = currentAquarium?.conservationMeter || 50;
+    const currentEnvironmentLevel = currentAquarium?.enviromentLevel || 0;
+
+    // 新しい節約メーター値を計算（スコア加算は初回ログイン時のみ）
+    let newConservationMeter = currentConservationMeter;
     if (isFirstLoginToday && totalScoreAdded !== 0) {
-      const currentAquarium = aquariumDoc.exists ? aquariumDoc.data() : { conservationMeter: 50, enviromentLevel: 0 };
-      const currentConservationMeter = currentAquarium?.conservationMeter || 50;
-      const currentEnvironmentLevel = currentAquarium?.enviromentLevel || 0;
+      newConservationMeter = currentConservationMeter + totalScoreAdded;
+    }
 
-      // 新しい節約メーター値を計算
-      let newConservationMeter = currentConservationMeter + totalScoreAdded;
-      let newEnvironmentLevel = currentEnvironmentLevel;
-      let environmentChanged = false;
-      const meterResets: Array<{resetTo: number, reason: string, message: string}> = [];
-      let fedFishCount = 0;
-      let newEggCount = 0;
-      
-      // 自動餌やりロジック（conservationMeter ≥ 100で実行）
-      if (newConservationMeter >= 100) {
-        console.log(`Conservation meter ${newConservationMeter} >= 100, triggering automatic feeding`);
-        
-        // 魚のデータを取得
-        const fishSnapshot = await aquariumRef.collection('fish').get();
+    // 環境レベルと関連変数を初期化（常に実行）
+    let newEnvironmentLevel = currentEnvironmentLevel;
+    let environmentChanged = false;
+    const meterResets: Array<{resetTo: number, reason: string, message: string}> = [];
+    let fedFishCount = 0;
+    let newEggCount = 0;
 
-        for (const fishDoc of fishSnapshot.docs) {
-          const fishData = fishDoc.data();
-          const currentEggMeter = fishData.eggMeter || 0;
-          const currentGrowthLevel = fishData.growthLevel || 1;
-          let newEggMeter = Math.min(3, currentEggMeter + 1); // 最大3
-          const newGrowthLevel = Math.min(10, currentGrowthLevel + 1); // 最大10
+    // 自動餌やりロジック（conservationMeter ≥ 100で実行）
+    if (newConservationMeter >= 100) {
 
-          // 卵メーターが3に達した場合、卵を生成してリセット
-          if (newEggMeter === 3 && currentEggMeter < 3) {
-            newEggCount++;
-            newEggMeter = 0; // 卵メーターをリセット
-            console.log(`Fish ${fishData.fish_name || fishDoc.id} reached eggMeter 3, generating egg and resetting meter`);
-          }
+      // 魚のデータを取得
+      const fishSnapshot = await aquariumRef.collection('fish').get();
 
-          // 魚のeggMeterを更新
-          await fishDoc.ref.update({
-            eggMeter: newEggMeter,
-            growthLevel: newGrowthLevel,
-            lastFed: admin.firestore.FieldValue.serverTimestamp(),
-          });
+      for (const fishDoc of fishSnapshot.docs) {
+        const fishData = fishDoc.data();
+        const currentEggMeter = fishData.eggMeter || 0;
+        const currentGrowthLevel = fishData.growthLevel || 1;
+        let newEggMeter = Math.min(3, currentEggMeter + 1); // 最大3
+        const newGrowthLevel = Math.min(10, currentGrowthLevel + 1); // 最大10
 
-          fedFishCount++;
+        // 卵メーターが3に達した場合、卵を生成してリセット
+        if (newEggMeter === 3 && currentEggMeter < 3) {
+          newEggCount++;
+          newEggMeter = 0; // 卵メーターをリセット
         }
 
-        // 餌やり実行後、メーターから100を消費
+        // 魚のeggMeterを更新
+        await fishDoc.ref.update({
+          eggMeter: newEggMeter,
+          growthLevel: newGrowthLevel,
+          lastFed: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        fedFishCount++;
+      }
+
+      // 餌やり実行後、メーターから100を消費
+      newConservationMeter = newConservationMeter - 100;
+    }
+
+    while (newConservationMeter <= 0 || newConservationMeter >= 100) {
+      if (newConservationMeter <= 0) {
+        // 環境レベルを-5し、メーターを50にリセット（0以下の部分は無視）
+        newEnvironmentLevel = Math.max(0, newEnvironmentLevel - 5);
+        newConservationMeter = 50;
+        environmentChanged = true;
+        meterResets.push({
+          resetTo: newConservationMeter,
+          reason: 'zero',
+          message: '節約メーターがゼロを下回ったため、環境レベルが低下し、メーターが50にリセットされました'
+        });
+      } else if (newConservationMeter >= 100) {
+        // 環境レベルを+5し、残りの値を保持（50にリセットしない）
+        newEnvironmentLevel = newEnvironmentLevel + 5;
         newConservationMeter = newConservationMeter - 100;
-        console.log(`Fed ${fedFishCount} fish, generated ${newEggCount} eggs, meter reduced to ${newConservationMeter}`);
-      }
-      
-      // 環境レベル調整処理（餌やり後も含む）
-      while (newConservationMeter <= 0 || newConservationMeter >= 100) {
-        if (newConservationMeter <= 0) {
-          // 環境レベルを-5し、メーターを50にリセット（0以下の部分は無視）
-          newEnvironmentLevel = Math.max(0, newEnvironmentLevel - 5);
-          newConservationMeter = 50;
-          environmentChanged = true;
-          meterResets.push({
-            resetTo: newConservationMeter,
-            reason: 'zero',
-            message: '節約メーターがゼロを下回ったため、環境レベルが低下し、メーターが50にリセットされました'
-          });
-        } else if (newConservationMeter >= 100) {
-          // 環境レベルを+5し、残りの値を保持（50にリセットしない）
-          newEnvironmentLevel = newEnvironmentLevel + 5;
-          newConservationMeter = newConservationMeter - 100;
-          environmentChanged = true;
-          meterResets.push({
-            resetTo: newConservationMeter,
-            reason: 'hundred',
-            message: '節約メーターが100に達したため、環境レベルが向上しました！'
-          });
-        }
-        
-        // 無限ループ防止
-        if (meterResets.length > 10) {
-          console.warn('Too many meter resets, breaking loop');
-          break;
-        }
+        environmentChanged = true;
+        meterResets.push({
+          resetTo: newConservationMeter,
+          reason: 'hundred',
+          message: '節約メーターが100に達したため、環境レベルが向上しました！'
+        });
       }
 
-      // 最終的にメーターを0-100の範囲に制限
-      newConservationMeter = Math.max(0, Math.min(100, newConservationMeter));
+      // 無限ループ防止
+      if (meterResets.length > 10) {
+        console.warn('Too many meter resets, breaking loop');
+        break;
+      }
+    }
 
-      // 水族館データを更新
+    // 最終的にメーターを0-100の範囲に制限
+    newConservationMeter = Math.max(0, Math.min(100, newConservationMeter));
+
+    // 水族館データを更新（変更があった場合のみ、または強制実行の場合）
+    const shouldUpdate = (isFirstLoginToday && totalScoreAdded !== 0) || environmentChanged || fedFishCount > 0 || forceProcess;
+
+    if (shouldUpdate) {
       const updateData: {
         conservationMeter: number;
         lastUpdated: admin.firestore.FieldValue;
@@ -250,18 +254,18 @@ export async function POST(request: NextRequest) {
         conservationMeter: newConservationMeter,
         lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
       };
-      
+
       if (environmentChanged) {
         updateData.enviromentLevel = newEnvironmentLevel;
       }
-      
+
       // 餌やりを実行した場合、たまご数と餌やり日付を更新
       if (fedFishCount > 0) {
         const currentUnhatchedEggCount = currentAquarium?.unhatchedEggCount || 0;
         updateData.unhatchedEggCount = currentUnhatchedEggCount + newEggCount;
         updateData.lastFeedingDate = todayString;
       }
-      
+
       await aquariumRef.update(updateData);
     }
 

@@ -1,0 +1,413 @@
+#include <WiFi.h>    // Wi-Fi接続用
+#include <time.h>    // 時刻取得用（NTP）
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+#include <Preferences.h>  // フラッシュメモリ保存用
+
+// Preferencesオブジェクト
+Preferences preferences;
+
+// センサー接続ピン
+const int PIN_LDR = 34;   // CdSセル
+const int PIN_PIR = 27;   // 人感センサー（PIR）
+
+// 明るさ判定用
+const int LDR_BRIGHT_ON  = 1500;   // 明るい判断の値
+const int LDR_BRIGHT_OFF = 1000;    // 暗い判断の値
+const float LIGHT_POWER_W = 40.0;  // 電球の消費電力[W]
+
+// 測定用変数
+bool isBright = false;            // 明るさの状態
+bool measuring = false;           // 測定中かどうか(測定中ならtrue)
+unsigned long measureStart = 0;   // 測定開始時刻(measuring = trueで開始)
+unsigned long wastedMs = 0;       // 1日の無駄点灯時間[ms]
+// unsigned long hourlyMs = 0;       // 1時間ごとの無駄点灯時間[ms]
+unsigned long fiveMinMs = 0; //5分ごと用
+
+double dailyTotalKWh = 0;         // 1日の無駄電力合計[kWh]
+unsigned long dailyTotalMs = 0;   // 1日の無駄時間合計[ms]
+
+// 人感センサー安定化
+const unsigned long PIR_STABLE_MS = 200;  // 200[ms]以上変化がなければ確定
+unsigned long lastPirChangeMs = 0;        // 変化があった時刻の記録
+int lastPirRaw = LOW;                     // 変化があったか確認
+int pirState = LOW;                       // 200[ms]変化なし pirState = HIGH
+
+// 時刻管理用　前回の時刻を記録(-1 :初期値)
+int lastFiveMin = -1;  // 時間単位0~23を記録　nowHour変化23から0:新しい時間にする
+int lastDay  = -1;  // 日単位1~31を記録　nowDay変化:日付変更
+
+// Wi-Fi設定
+const char* WIFI_SSID     = "TK";
+const char* WIFI_PASSWORD = "Tsujimotokentowifi";
+
+// NTP設定 時刻同期
+const char* ntpServer = "ntp.nict.jp";  // 正しい世界時刻取得
+const long  gmtOffset_sec = 9*3600;     // 32400[s]=基準時から+9時間で日本標準時間に合わせる
+const int   daylightOffset_sec = 0;     // サマータイム調整(夏は時計を一時間早める国がある)
+
+// デバイスid 管理
+String deviceId = "";
+
+// フラッシュメモリからデバイスIDを読み込み
+String loadDeviceId() {
+  preferences.begin("device", false);  // 名前空間"device"で読み書きモードで開く
+  String storedId = preferences.getString("deviceId", "");
+  preferences.end();
+  return storedId;
+}
+
+// フラッシュメモリにデバイスIDを保存
+void saveDeviceId(String id) {
+  preferences.begin("device", false);  // 名前空間"device"で読み書きモードで開く
+  preferences.putString("deviceId", id);
+  preferences.end();
+  Serial.println("デバイスID保存完了: " + id);
+}
+// CdSセル平均読み取り ノイズ対策(8回読み取って平均を取り値を安定させている)
+int readLDR(int n=8){               // readLDR:明るさを読む関数
+  long sum = 0;                     // long:8回分を合計する変数(値が大きくてもいいようにlong)
+  for(int i=0;i<n;i++){
+    sum += analogRead(PIN_LDR);     // analogRead:0~4095の整数値を返す それを加算する
+    delay(2);
+  }
+  return sum/n;                     // 平均を出す
+}
+
+// 明るさ更新
+void updateBrightness(){                                     // 明るさ情報の更新
+  int val = readLDR();                                       // 安定化したcds値を取得
+  if(!isBright && val >= LDR_BRIGHT_ON) isBright = true;     // 暗いときに明るい基準以上になったら「明るい」
+  if(isBright && val <= LDR_BRIGHT_OFF) isBright = false;    // 明るいときに暗い基準以上になったら「暗い」
+}
+
+// 人感センサ更新 チャタリング防止(200[ms]以上変化がないと有効)
+void updatePir(){
+  int raw = digitalRead(PIN_PIR);                    // 人感センサからのそのままの値
+  if(raw != lastPirRaw){                             // 変化があったら
+    lastPirRaw = raw;
+    lastPirChangeMs = millis();                      // 新しい値とその時刻[ms]の保存
+  }
+  if(millis() - lastPirChangeMs > PIR_STABLE_MS){    // 値変化から200[ms]経っていたら
+    pirState = raw;                                  // 確定
+  }
+}
+
+// msを時:分:秒に変換
+String formatTime(unsigned long ms){
+  unsigned long sec = ms/1000;
+  unsigned int h = (sec/3600)%24;
+  unsigned int m = (sec/60)%60;
+  unsigned int s = sec%60;
+  char buf[16];
+  sprintf(buf,"%02u:%02u:%02u", h, m, s);
+  return String(buf);
+}
+
+// 月日出力表示取得
+String getMonthDayKey(struct tm *timeinfo){
+  char buf[8];
+  sprintf(buf,"%02d-%02d", timeinfo->tm_mon+1, timeinfo->tm_mday);
+  return String(buf);
+}
+
+
+// デバイスの存在確認
+bool checkDeviceExists(String deviceId) {
+  HTTPClient http;
+  http.begin("https://aquariumotion.vercel.app/api/check-device-status");
+  http.addHeader("Content-Type", "application/json");
+  
+  DynamicJsonDocument doc(1024);
+  doc["deviceId"] = deviceId;
+  
+  String jsonString;
+  serializeJson(doc, jsonString);
+  
+  int httpResponseCode = http.POST(jsonString);
+  
+  if (httpResponseCode == 200) {
+    // デバイスが存在する場合
+    http.end();
+    return true;
+  } else if (httpResponseCode == 404) {
+    // デバイスが存在しない場合
+    http.end();
+    return false;
+  }
+  
+  // その他のエラー
+  http.end();
+  return false;
+}
+
+// デバイスIDを初期化（保存済みIDを使用または新規登録）
+String initializeDeviceId(String deviceType) {
+  // まず保存済みIDを読み込み
+  String storedId = loadDeviceId();
+  
+  if (storedId != "") {
+    // 保存済みIDがある場合、サーバーで確認
+    Serial.println("保存済みデバイスID検出: " + storedId);
+    if (checkDeviceExists(storedId)) {
+      Serial.println("デバイスID確認完了: " + storedId);
+      deviceId = storedId;
+      return storedId;
+    } else {
+      Serial.println("保存済みデバイスIDがサーバーに存在しません。新規登録します。");
+    }
+  }
+  
+  // 新規登録
+  return registerDevice(deviceType);
+}
+
+String registerDevice(String deviceType) {
+  HTTPClient http;
+  http.begin("https://aquariumotion.vercel.app/api/register-device");
+  http.addHeader("Content-Type", "application/json");
+  
+  DynamicJsonDocument doc(1024);
+  doc["deviceType"] = deviceType;
+  
+  String jsonString;
+  serializeJson(doc, jsonString);
+  
+  int httpResponseCode = http.POST(jsonString);
+  
+  if (httpResponseCode == 200) {
+    String response = http.getString();
+    DynamicJsonDocument responseDoc(1024);
+    deserializeJson(responseDoc, response);
+    
+    String getDeviceId = responseDoc["data"]["deviceId"];
+    String registrationCode = responseDoc["data"]["registrationCode"];
+    
+    deviceId = getDeviceId;
+    saveDeviceId(deviceId);  // フラッシュメモリに保存
+    
+    Serial.println("新規デバイス登録完了");
+    Serial.println("Device ID: " + deviceId);
+    Serial.println("Registration Code: " + registrationCode);
+    
+    http.end();
+    return deviceId;
+  }
+  
+  http.end();
+  return "";
+}
+
+bool sendUsageData(String deviceId, String usageType, float amount, String apiKey) {
+  HTTPClient http;
+  http.begin("https://aquariumotion.vercel.app/api/log-device-usage");
+  
+  // ヘッダー設定
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("x-api-key", apiKey);
+  
+  // JSON作成
+  DynamicJsonDocument doc(1024);
+  doc["deviceId"] = deviceId;
+  doc["usageType"] = usageType;
+  doc["amount"] = amount;
+  
+  String jsonString;
+  serializeJson(doc, jsonString);
+  
+  // POST送信
+  int httpResponseCode = http.POST(jsonString);
+  
+  if (httpResponseCode == 200) {
+    Serial.println("データ送信成功");
+    String response = http.getString();
+    Serial.println("Response: " + response);
+    http.end();
+    return true;
+  } else {
+    Serial.println("送信失敗: " + String(httpResponseCode));
+    String errorResponse = http.getString();
+    Serial.println("Error: " + errorResponse);
+    http.end();
+    return false;
+  }
+}
+
+
+void setup(){
+  Serial.begin(115200);
+  pinMode(PIN_PIR, INPUT);
+  analogReadResolution(12);
+
+  Serial.println("=== 無駄点灯ロガー開始 ===");
+
+// Wi-Fi接続 
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("WiFi connecting");
+  while(WiFi.status() != WL_CONNECTED){
+    delay(500); Serial.print(".");
+  }
+  Serial.println(" connected!");
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  initializeDeviceId("electricity");  // 固定デバイスID初期化
+  // NTP設定
+}
+
+//5分用
+void loop(){
+  updateBrightness();
+  updatePir();
+
+  bool noPerson = (pirState == LOW);
+  bool shouldMeasure = (isBright && noPerson);
+
+  // 測定開始/停止
+  if(shouldMeasure && !measuring){
+    measuring = true;
+    measureStart = millis();
+  } else if(!shouldMeasure && measuring){
+    measuring = false;
+    unsigned long dur = millis() - measureStart;
+    wastedMs += dur;
+    fiveMinMs += dur;  // hourlyMs → fiveMinMs
+  }
+
+  // 1秒ごとの処理
+  static unsigned long lastPrint = 0;
+  if(millis() - lastPrint >= 1000){
+    lastPrint = millis();
+
+    unsigned long currentMs = wastedMs + (measuring?(millis()-measureStart):0);
+    unsigned long currentFiveMinMs = fiveMinMs + (measuring?(millis()-measureStart):0);  // 変数名変更
+
+    float wastedFiveMin_h = currentFiveMinMs / 3600000.0;           // 5分間の時間を時間単位に
+    float wastedKWh_5min = wastedFiveMin_h * LIGHT_POWER_W / 1000.0;  // 5分間の無駄電力
+
+    // 現在時刻
+    time_t now;
+    struct tm timeinfo;
+    time(&now);
+    localtime_r(&now,&timeinfo);
+
+    int currentHour = timeinfo.tm_hour;
+    int currentMin = timeinfo.tm_min;
+    int currentDay = timeinfo.tm_mday;
+    
+    // 5分単位を計算（0, 5, 10, 15, ... 55）
+    int currentFiveMin = (currentMin / 5) * 5;
+
+    // 5分が変わったら確定
+    if(lastFiveMin != -1 && currentFiveMin != lastFiveMin){
+      Serial.printf("[集計] %02d:%02d の無駄時間: %s | 無駄電力: %.3f kWh\n",
+        currentHour,
+        lastFiveMin,  // 前の5分間の開始時刻
+        formatTime(currentFiveMinMs).c_str(),
+        wastedKWh_5min
+      );
+      sendUsageData(deviceId, "electricity", wastedKWh_5min, "aquarium-esp32-secure-key-2024");
+      dailyTotalKWh += wastedKWh_5min;
+      dailyTotalMs += currentFiveMinMs;
+      fiveMinMs = 0;  // 次の5分間のためリセット
+    }
+
+    // 現在時刻記録
+    lastFiveMin = currentFiveMin;  // lastHour → lastFiveMin
+    lastDay = currentDay;
+    
+    // 状態を出力（表示部分も5分間に変更）
+    String nowClock = formatTime(millis());
+    Serial.print("時刻: "); Serial.print(nowClock);
+    Serial.print(" | 明るさ: "); Serial.print(isBright?"明るい":"暗い");
+    Serial.print(" | 人: "); Serial.print(noPerson?"いない":"いる");
+    Serial.print(" | 無駄時間(5分): "); Serial.print(formatTime(currentFiveMinMs));
+    Serial.print(" | 無駄電力(5分): "); Serial.print(wastedKWh_5min,3); Serial.println(" kWh");
+    Serial.print(" | デバイスID: "); Serial.print(deviceId);
+  }
+}
+
+// void loop(){
+//   updateBrightness();     // 今明るいかを最新にする関数呼び出し
+//   updatePir();            // 200[ms]安定したらpirStateに反映
+
+//   // pirStateで人がいるか判断
+//   bool noPerson = (pirState == LOW);             // 人がいないpirState == LOWならnoPerson = true
+//   bool shouldMeasure = (isBright && noPerson);   //明るいかつ人がいないならshouldMeasure = true
+
+//   // 測定開始/停止
+//   if(shouldMeasure && !measuring){                 // shouldMeasure == trueで測定してないとき測定開始する
+//     measuring = true;                              // 測定中
+//     measureStart = millis();                       // 測定開始時刻[ms]
+//   } else if(!shouldMeasure && measuring){          // shouldMeasure == falseで測定しているとき測定停止する
+//     measuring = false;
+//     unsigned long dur = millis() - measureStart;   // millis() - measureStart現在時刻から開始時刻を引いて経過時間[ms]得る
+//     wastedMs += dur;                               // 測定時間を日の合計無駄時間に足す
+//     hourlyMs += dur;                               // 測定時間を時間の合計無駄時間に足す
+//   }
+
+//   // 1秒ごとの処理
+//   static unsigned long lastPrint = 0;     // staticで最初一回だけ0で初期化
+//   if(millis() - lastPrint >= 1000){       // millis():esp32が起動してからの経過時間[ms]　lastPrintから1000[ms]経ったら処理する
+//     lastPrint = millis();                 // 処理時間更新　また一秒後まで処理しない
+
+//     // 
+//     unsigned long currentMs = wastedMs + (measuring?(millis()-measureStart):0);
+//     unsigned long currentHourMs = hourlyMs + (measuring?(millis()-measureStart):0);
+
+//     float wastedHour_h = currentHourMs / 3600000.0;             // [ms]を[h]に
+//     float wastedKWh_h = wastedHour_h * LIGHT_POWER_W / 1000.0;  // [W]とかけて[kWh]に
+
+//     // 現在時刻
+//     time_t now;
+//     struct tm timeinfo;
+//     time(&now);
+//     localtime_r(&now,&timeinfo);          // 年月日、時分秒に
+
+//     int currentHour = timeinfo.tm_hour;   // 現在時刻の時0~23
+//     int currentDay  = timeinfo.tm_mday;   // 現在日付の日1~31
+
+//     // 時刻が変わったら1時間分を確定
+//     if(lastHour != -1 && currentHour != lastHour){                         // lastHour != -1：初期状態でない　currentHour != lastHour：前回の時間と異なる
+//       Serial.printf("[集計] %02d時の無駄時間: %s | 無駄電力: %.3f kWh\n",
+//         lastHour,
+//         formatTime(currentHourMs).c_str(),
+//         wastedKWh_h
+//       );
+//       dailyTotalKWh += wastedKWh_h;    // 無駄電力を日合計に足す
+//       dailyTotalMs  += currentHourMs;  // 無駄時間を日合計に足す
+//       hourlyMs = 0;                    // 次の時間の測定のためリセット
+//     }
+
+//     // 0時になったら前日分を出力
+//     if(lastHour == 23 && currentHour == 0){    // 前回の時刻が23時で今回の時刻が0時
+//       time_t yesterday = now - 24*3600;        // 24*3600:24時間を秒に変換　今から24時間前(昨日)を得る
+//       struct tm prevInfo;                      // prevInfo:昨日の月日情報が入る
+//       localtime_r(&yesterday,&prevInfo);
+
+//       String prevDate = getMonthDayKey(&prevInfo);   // getMonthDayKey():月日を文字列にする　prevDate:昨日の日付
+//       Serial.printf("=== 日合計 (%s): 無駄時間 %s | 無駄電力 %.3f kWh ===\n",
+//         prevDate.c_str(),
+//         formatTime(dailyTotalMs).c_str(),
+//         dailyTotalKWh
+//       );
+
+//       // リセット
+//       dailyTotalKWh = 0;
+//       dailyTotalMs  = 0;
+//       wastedMs = 0;
+//       hourlyMs = 0;
+//     }
+
+//     // 現在時刻記録
+//     lastHour = currentHour;
+//     lastDay  = currentDay;
+
+//     // 状態を出力
+//     String nowClock = formatTime(millis());
+//     Serial.print("時刻: "); Serial.print(nowClock);
+//     Serial.print(" | 明るさ: "); Serial.print(isBright?"明るい":"暗い");
+//     Serial.print(" | 人: "); Serial.print(noPerson?"いない":"いる");
+//     Serial.print(" | 無駄時間: "); Serial.print(formatTime(currentHourMs));
+//     Serial.print(" | 無駄電力: "); Serial.print(wastedKWh_h,3); Serial.println(" kWh");
+//   }
+// }
+
