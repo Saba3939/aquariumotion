@@ -22,6 +22,8 @@ import FishStatus from "@/components/fish-status";
 import DebugTools from "@/components/debug-tools";
 import Dialogs from "@/components/dialogs";
 import FishSelectionDialog from "@/components/fish-selection-dialog";
+import WelcomeDialog from "@/components/welcome-dialog";
+import ICCardRegistration from "@/components/ic-card-registration";
 
 // 定数
 import { navigationItems } from "@/constants/navigation";
@@ -41,7 +43,7 @@ export default function HomePage() {
 
 	// カスタムフック
 	const { user, authLoading, authError, signInWithGoogle, signInWithGoogleRedirect, handleSignOut } = useAuth();
-	const { fishData, aquariumData, loading, fetchAquariumData } = useAquariumData(user);
+	const { fishData, aquariumData, loading, fetchAquariumData, isFirstTimeUser, initialFishName, resetFirstTimeUserFlag } = useAquariumData(user);
 	const { hatchEgg, releaseFish, discardEgg, processDailyUsage, forceProcessDailyUsage, updateFishStatus, resetFishStatus } = useAquariumApi(user);
 
 	// Toast通知を表示する関数
@@ -56,6 +58,16 @@ export default function HomePage() {
 		} else {
 			toast.info(message, { description, duration: 4000 });
 		}
+	};
+
+	// 初回ユーザー向けウェルカムダイアログを閉じる時の処理
+	const handleWelcomeDialogClose = () => {
+		resetFirstTimeUserFlag();
+		// 初回ログイン時のtoastを表示
+		toast.success('🎉 AQUARIUMOTIONへようこそ！', {
+			description: initialFishName ? `「${initialFishName}」があなたの水族館で泳ぎ始めました。環境保護活動で水族館を発展させていきましょう！` : '環境保護活動で水族館を発展させていきましょう！',
+			duration: 6000,
+		});
 	};
 
 	// 拡張されたAPI関数
@@ -488,6 +500,16 @@ export default function HomePage() {
 
 						{activeTab === "device" && (
 							<div className='space-y-6'>
+								{/* ICカード登録 */}
+								<div className='bg-white rounded-2xl shadow-lg p-6'>
+									<h2 className='text-xl font-semibold text-gray-800 mb-6 flex items-center'>
+										<Settings className="w-6 h-6 mr-2" />
+										ICカード設定
+									</h2>
+									<ICCardRegistration user={user} />
+								</div>
+
+								{/* デバイス連携管理 */}
 								<div className='bg-white rounded-2xl shadow-lg p-6'>
 									<h2 className='text-xl font-semibold text-gray-800 mb-6 flex items-center'>
 										<Settings className="w-6 h-6 mr-2" />
@@ -534,6 +556,13 @@ export default function HomePage() {
 					})}
 				</nav>
 			</div>
+
+			{/* 初回ユーザー向けウェルカムダイアログ */}
+			<WelcomeDialog
+				isOpen={isFirstTimeUser}
+				onClose={handleWelcomeDialogClose}
+				fishName={initialFishName || undefined}
+			/>
 		</div>
 	);
 }

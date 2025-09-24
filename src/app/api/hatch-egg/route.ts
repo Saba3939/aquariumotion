@@ -23,7 +23,7 @@ interface HatchEggResponse {
 
 // 魚の名前候補リスト
 const fishNames = [
-  "まんぼう", "ふぐ"
+  "まんぼう", "ふぐ", "マグロ", "タツノオトシゴ", "キイロハギ", "オレンジフィッシュ"
 ];
 
 // ランダムな魚のタイプIDを生成（fishNamesの範囲内）

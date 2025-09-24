@@ -202,9 +202,6 @@ export async function POST(request: NextRequest) {
 
         fedFishCount++;
       }
-
-      // 餌やり実行後、メーターから100を消費
-      newConservationMeter = newConservationMeter - 100;
     }
 
     while (newConservationMeter <= 0 || newConservationMeter >= 100) {
@@ -236,7 +233,6 @@ export async function POST(request: NextRequest) {
         break;
       }
     }
-
     // 最終的にメーターを0-100の範囲に制限
     newConservationMeter = Math.max(0, Math.min(100, newConservationMeter));
 

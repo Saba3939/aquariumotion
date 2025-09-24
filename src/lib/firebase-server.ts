@@ -42,9 +42,16 @@ function initializeFirebaseAdmin() {
 	}
 
 	try {
+		// プロジェクトIDからRealtime Database URLを生成
+		const projectId = serviceAccount.project_id;
+		const databaseURL = `https://${projectId}-default-rtdb.firebaseio.com/`;
+
 		admin.initializeApp({
 			credential: admin.credential.cert(serviceAccount),
+			databaseURL: databaseURL
 		});
+
+		console.log(`Firebase Admin initialized with database URL: ${databaseURL}`);
 		firebaseInitialized = true;
 		return true;
 	} catch (error) {
@@ -110,6 +117,53 @@ export async function verifyIdToken(idToken: string): Promise<DecodedIdToken | n
 export function verifyApiKey(apiKey: string): boolean {
 	const validApiKey = process.env.ESP32_API_KEY;
 	return Boolean(validApiKey && apiKey === validApiKey);
+}
+
+// Realtime Database インスタンス取得
+export function getRealtimeDB() {
+  if (!initializeFirebaseAdmin()) {
+    return null;
+  }
+
+  try {
+    return admin.database();
+  } catch (error) {
+    console.error('Failed to get Realtime Database instance:', error);
+    return null;
+  }
+}
+
+// Realtime Databaseでコマンド送信
+export async function sendDeviceCommand(deviceId: string, command: Record<string, unknown>) {
+  const db = getRealtimeDB();
+  if (!db) {
+    throw new Error('Realtime Database not available');
+  }
+
+  const commandRef = db.ref(`device_commands/${deviceId}`);
+  await commandRef.set({
+    ...command,
+    timestamp: admin.database.ServerValue.TIMESTAMP,
+    processed: false
+  });
+
+  console.log(`コマンド送信成功: デバイス${deviceId}`, command);
+}
+
+// デバイス状態監視
+export function watchDeviceStatus(deviceId: string, callback: (status: unknown) => void) {
+  const db = getRealtimeDB();
+  if (!db) {
+    throw new Error('Realtime Database not available');
+  }
+
+  const statusRef = db.ref(`device_status/${deviceId}`);
+  statusRef.on('value', (snapshot) => {
+    const status = snapshot.val();
+    callback(status);
+  });
+
+  return () => statusRef.off(); // cleanup function
 }
 
 // 後方互換性のため（動的に取得）
