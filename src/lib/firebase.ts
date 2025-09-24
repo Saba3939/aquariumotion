@@ -27,13 +27,6 @@ function initializeFirebase() {
 
 	if (!app) {
 		try {
-			console.log('Firebase初期化開始');
-			console.log('Firebase設定:', {
-				apiKey: firebaseConfig.apiKey ? '設定済み' : '未設定',
-				authDomain: firebaseConfig.authDomain,
-				projectId: firebaseConfig.projectId,
-				appId: firebaseConfig.appId ? '設定済み' : '未設定'
-			});
 			
 			// 必須設定の確認
 			if (!firebaseConfig.apiKey) {
@@ -58,7 +51,6 @@ function initializeFirebase() {
 				hd: '*' // すべてのドメインを許可
 			});
 			
-			console.log('Firebase初期化成功 - Project ID:', firebaseConfig.projectId);
 		} catch (error) {
 			console.error('Firebase初期化エラー:', error);
 			app = null;

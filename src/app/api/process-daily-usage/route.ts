@@ -61,7 +61,6 @@ export async function POST(request: NextRequest) {
 		// 強制実行の場合は初回ログインフラグを強制的にtrueにする
 		if (forceProcess) {
 			isFirstLoginToday = true;
-			console.log(`Force processing enabled for user ${userId}`);
 		}
 
 		// 現在の水族館データを取得
@@ -85,9 +84,6 @@ export async function POST(request: NextRequest) {
 
 		// その日初回ログインの場合のみ、前日までの未処理データを一括処理
 		if (isFirstLoginToday) {
-			console.log(
-				`Initial login today for user ${userId}, processing previous days...`
-			);
 
 			// インデックス不要なシンプルクエリ: userIdのみで取得
 			const dailyUsageSnapshot = await db
@@ -108,9 +104,6 @@ export async function POST(request: NextRequest) {
 			});
 
 			if (unprocessedDocs.length > 0) {
-				console.log(
-					`Found ${unprocessedDocs.length} unprocessed daily usage records`
-				);
 
 				// 日付ごとにグループ化して総合スコアを算出
 				const dateGroups = new Map<
@@ -171,9 +164,6 @@ export async function POST(request: NextRequest) {
 
 				// バッチ実行
 				await batch.commit();
-				console.log(
-					`Processed ${processedCount} records across ${processedDates.length} dates`
-				);
 			}
 		}
 
@@ -257,7 +247,6 @@ export async function POST(request: NextRequest) {
 
 			// 無限ループ防止
 			if (meterResets.length > 10) {
-				console.warn("Too many meter resets, breaking loop");
 				break;
 			}
 		}
