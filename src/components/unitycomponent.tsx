@@ -1,23 +1,11 @@
-import type { Timestamp } from "firebase/firestore";
 import React, { useEffect, useState, useRef } from "react";
 import { Unity, useUnityContext } from "react-unity-webgl";
+import type { Fish, Aquarium } from "@/types/aquarium";
+import type { Timestamp } from "firebase/firestore";
 
-interface Fish {
-	id: string;
-	type_id: number;
-	fish_name: string;
-	status: string;
-	eggMeter: number;
-	growthLevel: number;
-	birthDate: Timestamp;
-}
 
-interface Aquarium {
-	enviromentLevel: number;
-	conservationMeter: number;
-	lastUpdated: Timestamp;
-	unhatchedEggCount: number; // たまごの孵化システム用
-}
+
+
 
 interface UnityComponentProps {
 	fishData: Fish[];
@@ -100,80 +88,49 @@ function UnityComponent({ fishData, aquariumData }: UnityComponentProps) {
 	// ロード中の表示
 	const loadingPercentage = Math.round(loadingProgression * 100);
 
-	// Unityがロードされた時にデータを送信
+	// Unityへのデータ送信を統合（初回ロード時と更新時）
 	useEffect(() => {
-		if (isLoaded && aquariumData && fishData.length > 0) {
+		if (!isLoaded) return;
+
+		const sendDataToUnity = () => {
 			try {
-				// 水槽データをUnityに送信
-				const aquariumJson = JSON.stringify({
-					enviromentLevel: aquariumData.enviromentLevel,
-					conservationMeter: aquariumData.conservationMeter,
-					unhatchedEggCount: aquariumData.unhatchedEggCount || 0, // たまごの数を追加
-					lastUpdated: safeTimestampToISO(aquariumData.lastUpdated), // 安全な変換
-				});
+				// 水槽データの送信
+				if (aquariumData) {
+					const aquariumJson = JSON.stringify({
+						enviromentLevel: aquariumData.enviromentLevel,
+						conservationMeter: aquariumData.conservationMeter,
+						unhatchedEggCount: aquariumData.unhatchedEggCount || 0,
+						lastUpdated: safeTimestampToISO(aquariumData.lastUpdated),
+					});
 
-				// 魚データをUnityに送信
-				const fishJson = JSON.stringify(
-					fishData.map((fish) => ({
-						id: fish.id,
-						type_id: fish.type_id,
-						fish_name: fish.fish_name,
-						status: fish.status,
-						eggMeter: fish.eggMeter,
-						growthLevel: fish.growthLevel,
-						birthDate: safeTimestampToISO(fish.birthDate), // 安全な変換
-					}))
-				);
+					sendMessage("GameManager", "ReceiveAquariumData", aquariumJson);
+				}
 
-				// GameObjectName と MethodName は Unity側で設定したものに合わせて変更してください
-				sendMessage("GameManager", "ReceiveAquariumData", aquariumJson);
-				sendMessage("GameManager", "ReceiveFishData", fishJson);
+				// 魚データの送信
+				if (fishData.length > 0) {
+					const fishJson = JSON.stringify(
+						fishData.map((fish) => ({
+							id: fish.id,
+							type_id: fish.type_id,
+							fish_name: fish.fish_name,
+							status: fish.status,
+							eggMeter: fish.eggMeter,
+							growthLevel: fish.growthLevel,
+							birthDate: safeTimestampToISO(fish.birthDate),
+						}))
+					);
+
+					sendMessage("GameManager", "ReceiveFishData", fishJson);
+				}
+
 				console.log("データをUnityに送信しました:", { aquariumData, fishData });
 			} catch (error) {
 				console.error("Unityへのデータ送信に失敗しました:", error);
 			}
-		}
+		};
+
+		sendDataToUnity();
 	}, [isLoaded, aquariumData, fishData, sendMessage]);
-
-	// データが更新された時にもUnityに送信
-	useEffect(() => {
-		if (isLoaded && aquariumData) {
-			try {
-				const aquariumJson = JSON.stringify({
-					enviromentLevel: aquariumData.enviromentLevel,
-					conservationMeter: aquariumData.conservationMeter,
-					unhatchedEggCount: aquariumData.unhatchedEggCount || 0, // たまごの数を追加
-					lastUpdated: safeTimestampToISO(aquariumData.lastUpdated), // 安全な変換
-				});
-
-				sendMessage("GameManager", "UpdateAquariumData", aquariumJson);
-			} catch (error) {
-				console.error("水槽データの更新送信に失敗しました:", error);
-			}
-		}
-	}, [aquariumData, isLoaded, sendMessage]);
-
-	useEffect(() => {
-		if (isLoaded && fishData.length > 0) {
-			try {
-				const fishJson = JSON.stringify(
-					fishData.map((fish) => ({
-						id: fish.id,
-						type_id: fish.type_id,
-						fish_name: fish.fish_name,
-						status: fish.status,
-						eggMeter: fish.eggMeter,
-						growthLevel: fish.growthLevel,
-						birthDate: safeTimestampToISO(fish.birthDate), // 安全な変換
-					}))
-				);
-
-				sendMessage("GameManager", "UpdateFishData", fishJson);
-			} catch (error) {
-				console.error("魚データの更新送信に失敗しました:", error);
-			}
-		}
-	}, [fishData, isLoaded, sendMessage]);
 
 	return (
 		<div ref={containerRef} className='w-full h-full relative'>
