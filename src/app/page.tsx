@@ -320,8 +320,8 @@ export default function HomePage() {
 
 	useEffect(() => {
 		if (user) {
-			fetchAquariumData();
 			// ログイン時にdailyUsageデータを自動処理
+			// fetchAquariumDataはuseAquariumDataフック内で自動実行されるため削除
 			handleProcessDailyUsage();
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
