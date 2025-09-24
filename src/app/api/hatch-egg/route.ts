@@ -89,15 +89,15 @@ export async function POST(request: NextRequest): Promise<NextResponse<HatchEggR
     const fishSnapshot = await fishCollectionRef.get();
     const currentFishCount = fishSnapshot.size;
 
-    // 魚が3体以上いる場合は取捨選択が必要
-    if (currentFishCount >= 3) {
+    // 魚が5体以上いる場合は取捨選択が必要
+    if (currentFishCount >= 5) {
       return NextResponse.json(
         { 
           success: false, 
           error: 'FISH_LIMIT_EXCEEDED',
           data: { 
             currentFishCount,
-            maxFishCount: 3,
+            maxFishCount: 5,
             message: '魚の数が上限に達しています。新しい魚を孵化させるには、既存の魚を手放す必要があります。' 
           }
         },

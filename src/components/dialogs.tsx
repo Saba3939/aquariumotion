@@ -31,18 +31,16 @@ export function FishBirthDialog({
 			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>🎉 新しい魚が誕生しました！</DialogTitle>
-					<DialogDescription>
-						<div className='text-center py-4'>
-							<div className='text-6xl mb-4'>🐠</div>
-							<p className='text-lg font-semibold'>
-								{newBornFish?.fish_name}
-							</p>
-							<p className='text-gray-600 mt-2'>
-								あなたのエコ活動が新しい生命を育みました！
-							</p>
-						</div>
-					</DialogDescription>
 				</DialogHeader>
+				<div className='text-center py-4'>
+					<div className='text-6xl mb-4'>🐠</div>
+					<div className='text-lg font-semibold'>
+						{newBornFish?.fish_name}
+					</div>
+					<div className='text-gray-600 mt-2'>
+						あなたのエコ活動が新しい生命を育みました！
+					</div>
+				</div>
 			</DialogContent>
 		</Dialog>
 	);

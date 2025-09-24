@@ -361,8 +361,8 @@ export default function HomePage() {
 	if (authLoading) {
 		return (
 			<div className='min-h-screen bg-gradient-to-br from-blue-50 to-green-50 flex items-center justify-center'>
-				<div className='text-center'>
-					<div className='text-6xl mb-4'>🐠</div>
+				<div className='text-center flex flex-col items-center'>
+          <Image src="/aquariumotion-icon.png" alt="logo" width={64} height={64} className="mb-2"></Image>
 					<p className='text-blue-600'>認証状態を確認中...</p>
 				</div>
 			</div>
@@ -384,8 +384,8 @@ export default function HomePage() {
 	if (loading) {
 		return (
 			<div className='min-h-screen bg-gradient-to-br from-blue-50 to-green-50 flex items-center justify-center'>
-				<div className='text-center'>
-					<div className='text-6xl mb-4'>🐠</div>
+				<div className='text-center flex flex-col items-center'>
+          <Image src="/aquariumotion-icon.png" alt="logo" width={64} height={64} className="mb-2"></Image>
 					<p className='text-blue-600'>水槽データを読み込み中...</p>
 				</div>
 			</div>
@@ -451,7 +451,7 @@ export default function HomePage() {
 								{/* Unity水族館表示エリア */}
 								<div className='bg-white rounded-2xl shadow-lg p-6'>
 									<h2 className='text-xl font-semibold text-gray-800 mb-4 flex items-center'>
-										🏛️ あなたの水族館
+                    me水槽
 									</h2>
 									<div className='aspect-video bg-gradient-to-b from-blue-100 to-blue-300 rounded-xl flex items-center justify-center'>
 										{/* Unity Component */}
@@ -472,13 +472,6 @@ export default function HomePage() {
 									discardEgg={handleDiscardEgg}
 								/>
 
-								{/* デバッグ・テスト用ツール */}
-								<DebugTools
-									forceProcessDailyUsage={handleForceProcessDailyUsage}
-									logFishStatus={handleLogFishStatus}
-									resetFishStatus={handleResetFishStatus}
-									loading={loading}
-								/>
 
 								{/* 魚の成長ステータス */}
 								<FishStatus
@@ -487,6 +480,14 @@ export default function HomePage() {
 									hatchEgg={handleHatchEgg}
 									discardEgg={handleDiscardEgg}
 									sendFishToLinkAquarium={handleSendFishToLinkAquarium}
+									loading={loading}
+								/>
+
+								{/* デバッグ・テスト用ツール */}
+								<DebugTools
+									forceProcessDailyUsage={handleForceProcessDailyUsage}
+									logFishStatus={handleLogFishStatus}
+									resetFishStatus={handleResetFishStatus}
 									loading={loading}
 								/>
 
