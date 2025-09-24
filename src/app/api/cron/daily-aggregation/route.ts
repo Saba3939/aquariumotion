@@ -1,30 +1,27 @@
+// 多分使っていない
 import { NextRequest, NextResponse } from 'next/server';
 import { getDB } from '@/lib/firebase-server';
 import { calculateConservationScore } from '@/lib/conservation-score';
 import { createSuccessResponse, createErrorResponse } from '@/lib/validation';
 import { Timestamp } from 'firebase-admin/firestore';
 
-// Vercel Cron Job専用認証
+// Cron認証ヘルパー関数
 function validateCronRequest(request: NextRequest): boolean {
-  // Vercel Cronからのリクエストかチェック
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
   
   if (!cronSecret) {
-    console.error('CRON_SECRET environment variable not set');
+    console.warn('CRON_SECRET not configured');
     return false;
   }
   
   return authHeader === `Bearer ${cronSecret}`;
 }
 
-/**
- * 日次集計・ゲームロジック更新API
- * 毎日深夜0時(JST)にVercel Cron Jobで実行
- */
+
 export async function GET(request: NextRequest) {
   try {
-    // Firebase Admin SDKの初期化確認
+    // Firebase Admin SDK初期化確認
     const db = getDB();
     if (!db) {
       console.error('Firebase Admin SDK not initialized');
@@ -49,17 +46,19 @@ export async function GET(request: NextRequest) {
     yesterday.setDate(yesterday.getDate() - 1);
     const dateString = yesterday.toISOString().split('T')[0]; // YYYY-MM-DD
     
-    // 全ユーザーの昨日のdailyUsageデータを取得
+    // 昨日の全ユーザーのdailyUsageデータを取得（未処理のもの含む）
     const dailyUsageSnapshot = await db.collection('dailyUsage')
       .where('date', '==', dateString)
       .get();
 
-    const processedUsers: string[] = [];
+    console.log(`Found ${dailyUsageSnapshot.docs.length} daily usage records for ${dateString}`);
+
     const results = {
       totalUsers: 0,
       scoredUsers: 0,
       fedFish: 0,
       newEggs: 0,
+      environmentLevelChanges: 0,
       errors: [] as string[]
     };
 
@@ -67,44 +66,74 @@ export async function GET(request: NextRequest) {
     const batch = db.batch();
     let batchCount = 0;
 
+    // ユーザーごとにグループ化して処理
+    const userDataMap = new Map<string, { docs: FirebaseFirestore.QueryDocumentSnapshot[]; totalWater: number; totalElectricity: number }>();
+    
+    // データをユーザーごとに集計
     for (const doc of dailyUsageSnapshot.docs) {
-      try {
-        const dailyData = doc.data();
-        const userId = dailyData.userId;
+      const dailyData = doc.data();
+      const userId = dailyData.userId;
+      
+      if (!userDataMap.has(userId)) {
+        userDataMap.set(userId, { docs: [], totalWater: 0, totalElectricity: 0 });
+      }
+      
+      const userData = userDataMap.get(userId)!;
+      userData.docs.push(doc);
+      userData.totalWater += dailyData.waterUsage || 0;
+      userData.totalElectricity += dailyData.electricityUsage || 0;
+    }
 
-        if (processedUsers.includes(userId)) continue;
-        processedUsers.push(userId);
+    // ユーザーごとに総合スコアを算出・適用
+    for (const [userId, userData] of userDataMap.entries()) {
+      try {
         results.totalUsers++;
 
-        // 節約スコア計算
+        // 水と電気使用量の合計で総合節約スコアを計算
         const conservationResult = calculateConservationScore({
-          waterUsage: dailyData.waterUsage || 0,
-          electricityUsage: dailyData.electricityUsage || 0,
+          waterUsage: userData.totalWater,
+          electricityUsage: userData.totalElectricity,
         });
 
-        // dailyUsageにスコアを更新
-        batch.update(doc.ref, {
-          conservationScore: conservationResult.conservationScore,
-          updatedAt: Timestamp.now(),
-        });
+        // そのユーザーの全dailyUsageドキュメントに同じスコアを設定
+        for (const doc of userData.docs) {
+          const existingData = doc.data();
+          
+          // すでに処理済みでないものだけ更新
+          if (existingData.conservationScore === undefined || existingData.conservationScore === null) {
+            batch.update(doc.ref, {
+              conservationScore: conservationResult.conservationScore,
+              totalDailyWater: userData.totalWater,
+              totalDailyElectricity: userData.totalElectricity,
+              updatedAt: Timestamp.now(),
+            });
+            batchCount++;
+          }
+        }
 
         results.scoredUsers++;
 
-        // ユーザーの水族館データを取得
+        // ユーザーの水族館データを取得・更新
         const aquariumRef = db.collection('aquariums').doc(userId);
         const aquariumDoc = await aquariumRef.get();
 
         if (aquariumDoc.exists) {
           const aquariumData = aquariumDoc.data()!;
-          const currentConservationMeter = aquariumData.conservationMeter || 0;
-          const newConservationMeter = currentConservationMeter + conservationResult.conservationScore;
-
+          const currentConservationMeter = aquariumData.conservationMeter || 50;
+          const currentEnvironmentLevel = aquariumData.enviromentLevel || 0;
+          
+          // 新しい節約メーターを計算
+          let newConservationMeter = currentConservationMeter + conservationResult.conservationScore;
+          let newEnvironmentLevel = currentEnvironmentLevel;
+          let environmentChanged = false;
+          
           // 自動餌やりロジック（conservationMeter ≥ 100で実行）
+          let fedFishCount = 0;
+          let newEggCount = 0;
+          
           if (newConservationMeter >= 100) {
             // 魚のデータを取得
             const fishSnapshot = await aquariumRef.collection('fish').get();
-            let fedFishCount = 0;
-            let newEggCount = 0;
 
             for (const fishDoc of fishSnapshot.docs) {
               const fishData = fishDoc.data();
@@ -116,6 +145,7 @@ export async function GET(request: NextRequest) {
                 eggMeter: newEggMeter,
                 lastFed: Timestamp.now(),
               });
+              batchCount++;
 
               fedFishCount++;
 
@@ -128,34 +158,72 @@ export async function GET(request: NextRequest) {
             // 水族館データ更新（conservationMeterを100消費）
             batch.update(aquariumRef, {
               conservationMeter: Math.max(0, newConservationMeter - 100),
+              enviromentLevel: newEnvironmentLevel,
               unhatchedEggCount: (aquariumData.unhatchedEggCount || 0) + newEggCount,
               lastFeedingDate: dateString,
               lastUpdated: Timestamp.now(),
             });
+            batchCount++;
 
             results.fedFish += fedFishCount;
             results.newEggs += newEggCount;
-          } else {
+          }
+          
+          // 環境レベル調整処理（餌やり後も含む）
+          while (newConservationMeter <= 0 || newConservationMeter >= 100) {
+            if (newConservationMeter <= 0) {
+              // 環境レベルを-5し、メーターを50にリセット（0以下の部分は無視）
+              newEnvironmentLevel = Math.max(0, newEnvironmentLevel - 5);
+              newConservationMeter = 50;
+              environmentChanged = true;
+              results.environmentLevelChanges++;
+            } else if (newConservationMeter >= 100) {
+              // 環境レベルを+5し、残りの値を保持（50にリセットしない）
+              newEnvironmentLevel = newEnvironmentLevel + 5;
+              newConservationMeter = newConservationMeter - 100;
+              environmentChanged = true;
+              results.environmentLevelChanges++;
+            }
+            
+            // 無限ループ防止
+            if (results.environmentLevelChanges > 100) {
+              console.warn('Too many environment level changes, breaking loop');
+              break;
+            }
+          }
+
+          // 餌やり条件を満たさない場合の水族館データ更新
+          if (newConservationMeter < 100) {
+
             // 餌やり条件を満たさない場合はconservationMeterのみ更新
-            batch.update(aquariumRef, {
+            const updateData: {
+              conservationMeter: number;
+              lastUpdated: Timestamp;
+              enviromentLevel?: number;
+            } = {
               conservationMeter: newConservationMeter,
               lastUpdated: Timestamp.now(),
-            });
+            };
+            
+            if (environmentChanged) {
+              updateData.enviromentLevel = newEnvironmentLevel;
+            }
+            
+            batch.update(aquariumRef, updateData);
+            batchCount++;
           }
         }
 
-        batchCount++;
-        
         // バッチサイズ制限（Firestoreは500件まで）
         if (batchCount >= 450) {
           await batch.commit();
           batchCount = 0;
+          console.log(`Committed batch, processed ${results.totalUsers} users so far`);
         }
 
       } catch (userError) {
-        const userData = doc.data();
-        console.error(`Error processing user ${userData.userId}:`, userError);
-        results.errors.push(`User ${userData.userId}: ${userError}`);
+        console.error(`Error processing user ${userId}:`, userError);
+        results.errors.push(`User ${userId}: ${userError}`);
       }
     }
 
@@ -170,6 +238,7 @@ export async function GET(request: NextRequest) {
       createSuccessResponse({
         processedDate: dateString,
         results,
+        message: `${dateString}の${results.totalUsers}ユーザーのデータを一括処理しました`,
         timestamp: new Date().toISOString(),
       })
     );
