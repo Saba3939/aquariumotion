@@ -97,14 +97,20 @@ export default function HomePage() {
 
 		if (result.success) {
 			console.log(`${result.data.releasedFish.fish_name}を手放しました`);
-			// 水族館データを再取得して表示を更新
-			await fetchAquariumData();
 			// 取捨選択ダイアログを閉じる
 			setShowFishSelectionDialog(false);
-			// 卵の孵化を再実行
-			await handleHatchEgg();
+			
+			// 卵の孵化を再実行（新しい魚の情報を取得）
+			const hatchResult = await hatchEgg();
+			if (hatchResult?.success && hatchResult.data?.newFish) {
+				setNewBornFish(hatchResult.data.newFish);
+				setShowBirthDialog(true);
+			}
+			
+			// 最後に水族館データを再取得して表示を更新
+			await fetchAquariumData();
 		}
-	};
+	};;
 
 	const handleDiscardEgg = async (eggCount = 1) => {
 		const result = await discardEgg(eggCount);
@@ -112,10 +118,20 @@ export default function HomePage() {
 
 		if (result.success) {
 			console.log(`${result.data.discardedEggCount}個の卵を放棄しました`);
-			// 水族館データを再取得して表示を更新
+			// 取捨選択ダイアログを閉じる
+			setShowFishSelectionDialog(false);
+			
+			// 卵の孵化を再実行（新しい魚の情報を取得）
+			const hatchResult = await hatchEgg();
+			if (hatchResult?.success && hatchResult.data?.newFish) {
+				setNewBornFish(hatchResult.data.newFish);
+				setShowBirthDialog(true);
+			}
+			
+			// 最後に水族館データを再取得して表示を更新
 			await fetchAquariumData();
 		}
-	};
+	};;
 
 	const handleProcessDailyUsage = async () => {
 		const responseData = await processDailyUsage();
