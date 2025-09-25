@@ -287,14 +287,36 @@ export async function POST(request: NextRequest) {
 			await aquariumRef.update(updateData);
 		}
 
-		// ユーザーのlastLoginを今日の日付に更新
-		await userRef.set(
-			{
+		// ユーザーのlastLoginを今日の日付に更新（エラーハンドリングと詳細ログを追加）
+		try {
+			console.log(`=== ユーザー情報更新処理開始 ===`);
+			console.log(`userId: ${userId}`);
+			console.log(`todayString: ${todayString}`);
+			console.log(`前回のlastLogin: ${lastLogin}`);
+			console.log(`isFirstLoginToday: ${isFirstLoginToday}`);
+			
+			const userUpdateData = {
 				lastLogin: todayString,
 				lastLoginTime: admin.firestore.FieldValue.serverTimestamp(),
-			},
-			{ merge: true }
-		);
+			};
+			
+			console.log(`更新データ:`, userUpdateData);
+			
+			await userRef.set(userUpdateData, { merge: true });
+			
+			console.log(`✅ ユーザー情報更新成功`);
+			
+			// 更新後のデータを確認
+			const updatedUserDoc = await userRef.get();
+			if (updatedUserDoc.exists) {
+				const updatedData = updatedUserDoc.data()!;
+				console.log(`更新後のlastLogin: ${updatedData.lastLogin}`);
+				console.log(`更新後のlastLoginTime:`, updatedData.lastLoginTime);
+			}
+		} catch (userUpdateError) {
+			console.error(`❌ ユーザー情報更新エラー:`, userUpdateError);
+			// ユーザー情報更新が失敗してもAPIレスポンスは成功とする（水族館データの処理は完了しているため）
+		}
 
 		// レスポンスデータを構築
 		const responseData = {

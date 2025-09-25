@@ -1,41 +1,64 @@
-#include <WiFi.h>    // Wi-Fi接続用
+##include <WiFi.h>    // Wi-Fi接続用
 #include <time.h>    // 時刻取得用（NTP）
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>  // フラッシュメモリ保存用
+#include <Wire.h>         // I2C通信用
+#include <BH1750.h>       // BH1750センサー用ライブラリ
 
 // Preferencesオブジェクト
 Preferences preferences;
 
-// センサー接続ピン
-const int PIN_LDR = 34;   // CdSセル
-const int PIN_PIR = 27;   // 人感センサー（PIR）
+// BH1750センサーオブジェクト
+BH1750 lightMeter;
 
-// 明るさ判定用
-const int LDR_BRIGHT_ON  = 1500;   // 明るい判断の値
-const int LDR_BRIGHT_OFF = 1000;    // 暗い判断の値
-const float LIGHT_POWER_W = 40.0;  // 電球の消費電力[W]
+// センサー接続ピン
+const int PIN_PIR = 27;   // 人感センサー（PIR）
+// BH1750はI2Cで接続（SDA: GPIO21, SCL: GPIO22）
+
+// 明るさ判定用（ルクス値）- より厳密な設定
+const float LUX_FLUORESCENT_ON  = 150.0;    // 蛍光灯点灯時の最低値
+const float LUX_FLUORESCENT_OFF = 100.0;    // 蛍光灯消灯時の最大値
+const float LUX_SUNLIGHT_MAX = 1000.0;      // 太陽光判定上限（これ以上は太陽光と判断）
+const float LIGHT_POWER_W = 40.0;           // 電球の消費電力[W]
+
+// 蛍光灯状態管理
+bool isFluorescentOn = false;               // 蛍光灯の状態（より厳密な判定）
+unsigned long lastLightChangeMs = 0;        // 照明状態変更時刻
+const unsigned long LIGHT_STABLE_MS = 3000; // 照明状態安定化時間（3秒）
 
 // 測定用変数
 bool isBright = false;            // 明るさの状態
 bool measuring = false;           // 測定中かどうか(測定中ならtrue)
-unsigned long measureStart = 0;   // 測定開始時刻(measuring = trueで開始)
+unsigned long measureStart = 0;   // 測定開始時刻(measuring = trueで開始
 unsigned long wastedMs = 0;       // 1日の無駄点灯時間[ms]
-// unsigned long hourlyMs = 0;       // 1時間ごとの無駄点灯時間[ms]
-unsigned long fiveMinMs = 0; //5分ごと用
+unsigned long hourlyMs = 0;       // 1時間ごと用
 
 double dailyTotalKWh = 0;         // 1日の無駄電力合計[kWh]
 unsigned long dailyTotalMs = 0;   // 1日の無駄時間合計[ms]
 
-// 人感センサー安定化
-const unsigned long PIR_STABLE_MS = 200;  // 200[ms]以上変化がなければ確定
+// 時刻管理用変数
+int lastHour = -1;                // 前回の時間（0~23）を記録
+int lastDay  = -1;                // 前回の日（1~31）を記録
+
+// 人感センサー安定化（調整された値）
+const unsigned long PIR_STABLE_MS = 50;   // 50[ms]以上変化がなければ確定（短縮）
 unsigned long lastPirChangeMs = 0;        // 変化があった時刻の記録
 int lastPirRaw = LOW;                     // 変化があったか確認
-int pirState = LOW;                       // 200[ms]変化なし pirState = HIGH
+int pirState = LOW;                       // 50[ms]変化なし pirState = HIGH
+
+// タイムアウト方式用変数
+bool personPresent = false;               // 人の在室状態
+unsigned long lastPersonDetectedMs = 0;   // 最後に人を検知した時刻
+const unsigned long PERSON_TIMEOUT_MS = 600000; // 10分間検知がないと不在とみなす（600,000ms = 10分）
+bool personTimeoutEnabled = true;         // タイムアウト機能のON/OFF
+
+// デバッグ用変数
+bool debugMode = true;                    // デバッグモードON/OFF
+unsigned long lastPirDebugMs = 0;         // PIRデバッグ出力用タイマー
 
 // 時刻管理用　前回の時刻を記録(-1 :初期値)
 int lastFiveMin = -1;  // 時間単位0~23を記録　nowHour変化23から0:新しい時間にする
-int lastDay  = -1;  // 日単位1~31を記録　nowDay変化:日付変更
 
 // Wi-Fi設定
 const char* WIFI_SSID     = "TK";
@@ -46,55 +69,177 @@ const char* ntpServer = "ntp.nict.jp";  // 正しい世界時刻取得
 const long  gmtOffset_sec = 9*3600;     // 32400[s]=基準時から+9時間で日本標準時間に合わせる
 const int   daylightOffset_sec = 0;     // サマータイム調整(夏は時計を一時間早める国がある)
 
-// デバイスid 管理
+// 登録コード登録
+String registrationCode = "";
 String deviceId = "";
 
 // フラッシュメモリからデバイスIDを読み込み
 String loadDeviceId() {
   preferences.begin("device", false);  // 名前空間"device"で読み書きモードで開く
-  String storedId = preferences.getString("deviceId", "");
+  String storedDeviceId = preferences.getString("deviceId", "");
   preferences.end();
-  return storedId;
+  return storedDeviceId;
+}
+
+String loadRegistrationId() {
+  preferences.begin("device", false);  // 名前空間"device"で読み書きモードで開く
+  String storedRegistrationId = preferences.getString("registrationId", "");
+  preferences.end();
+  return storedRegistrationId;
 }
 
 // フラッシュメモリにデバイスIDを保存
-void saveDeviceId(String id) {
+void saveDeviceId(String devId, String registrationId) {
   preferences.begin("device", false);  // 名前空間"device"で読み書きモードで開く
-  preferences.putString("deviceId", id);
+  preferences.putString("deviceId", devId);
+  preferences.putString("registrationId", registrationId);
   preferences.end();
-  Serial.println("デバイスID保存完了: " + id);
+  Serial.println("デバイスID保存完了: " + devId);
 }
-// CdSセル平均読み取り ノイズ対策(8回読み取って平均を取り値を安定させている)
-int readLDR(int n=8){               // readLDR:明るさを読む関数
-  long sum = 0;                     // long:8回分を合計する変数(値が大きくてもいいようにlong)
-  for(int i=0;i<n;i++){
-    sum += analogRead(PIN_LDR);     // analogRead:0~4095の整数値を返す それを加算する
-    delay(2);
+
+// BH1750照度センサー初期化
+bool initBH1750() {
+  Wire.begin();  // I2C初期化
+  
+  if (lightMeter.begin()) {
+    Serial.println("BH1750センサー初期化成功");
+    return true;
+  } else {
+    Serial.println("BH1750センサー初期化失敗");
+    return false;
   }
-  return sum/n;                     // 平均を出す
 }
 
-// 明るさ更新
-void updateBrightness(){                                     // 明るさ情報の更新
-  int val = readLDR();                                       // 安定化したcds値を取得
-  if(!isBright && val >= LDR_BRIGHT_ON) isBright = true;     // 暗いときに明るい基準以上になったら「明るい」
-  if(isBright && val <= LDR_BRIGHT_OFF) isBright = false;    // 明るいときに暗い基準以上になったら「暗い」
+// BH1750から照度値を読み取り（平均化でノイズ対策）
+float readLux(int n = 5) {
+  float sum = 0;
+  int validReadings = 0;
+  
+  for(int i = 0; i < n; i++) {
+    float lux = lightMeter.readLightLevel();
+    if (lux >= 0) {  // 正常な読み取り値の場合
+      sum += lux;
+      validReadings++;
+    }
+    delay(50);  // 測定間隔
+  }
+  
+  if (validReadings > 0) {
+    return sum / validReadings;
+  } else {
+    Serial.println("照度センサー読み取りエラー");
+    return -1;
+  }
 }
 
-// 人感センサ更新 チャタリング防止(200[ms]以上変化がないと有効)
-void updatePir(){
+// 蛍光灯状態更新（より厳密な判定）
+void updateBrightness() {
+  float lux = readLux();
+  
+  if (lux < 0) {
+    // センサーエラーの場合は状態を変更しない
+    return;
+  }
+  
+  bool oldFluorescentState = isFluorescentOn;
+  
+  // 太陽光チェック（あまりにも明るい場合は太陽光と判断）
+  if (lux > LUX_SUNLIGHT_MAX) {
+    if (debugMode && isFluorescentOn) {
+      Serial.printf("[LIGHT] 太陽光検出: %.1f lux (蛍光灯判定を無効化)\n", lux);
+    }
+    isFluorescentOn = false;  // 太陽光の場合は蛍光灯OFFとみなす
+    lastLightChangeMs = millis();
+    return;
+  }
+  
+  // ヒステリシス制御で蛍光灯の点灯/消灯を判定
+  if (!isFluorescentOn && lux >= LUX_FLUORESCENT_ON) {
+    isFluorescentOn = true;
+    lastLightChangeMs = millis();
+    Serial.printf("[LIGHT] 蛍光灯点灯検出: %.1f lux\n", lux);
+  }
+  else if (isFluorescentOn && lux <= LUX_FLUORESCENT_OFF) {
+    isFluorescentOn = false;
+    lastLightChangeMs = millis();
+    Serial.printf("[LIGHT] 蛍光灯消灯検出: %.1f lux\n", lux);
+  }
+  
+  // 状態が変化した場合の詳細ログ
+  if (oldFluorescentState != isFluorescentOn && debugMode) {
+    Serial.printf("[LIGHT] 蛍光灯状態変更: %s -> %s (%.1f lux)\n",
+                  oldFluorescentState ? "ON" : "OFF",
+                  isFluorescentOn ? "ON" : "OFF",
+                  lux);
+  }
+}
+
+// 人感センサ更新 タイムアウト方式+デバッグ出力
+void updatePir() {
   int raw = digitalRead(PIN_PIR);                    // 人感センサからのそのままの値
-  if(raw != lastPirRaw){                             // 変化があったら
+  
+  // デバッグ出力（5秒ごとに詳細状態を表示）
+  if(debugMode && millis() - lastPirDebugMs >= 5000) {
+    lastPirDebugMs = millis();
+    unsigned long timeSinceDetection = millis() - lastPersonDetectedMs;
+    Serial.printf("[PIR DEBUG] Raw: %s, Stable: %s, Person: %s, 最終検知: %lu秒前\n", 
+                  raw == HIGH ? "HIGH" : "LOW",
+                  pirState == HIGH ? "HIGH" : "LOW",
+                  personPresent ? "在室" : "不在",
+                  timeSinceDetection / 1000);
+    
+    if (personTimeoutEnabled && personPresent && timeSinceDetection > PERSON_TIMEOUT_MS / 2) {
+      Serial.printf("[PIR WARNING] タイムアウトまで残り: %lu秒\n", 
+                    (PERSON_TIMEOUT_MS - timeSinceDetection) / 1000);
+    }
+  }
+  
+  if(raw != lastPirRaw) {                            // 変化があったら
     lastPirRaw = raw;
     lastPirChangeMs = millis();                      // 新しい値とその時刻[ms]の保存
+    if(debugMode) {
+      Serial.printf("[PIR CHANGE] Raw: %s -> %s\n", 
+                    pirState == HIGH ? "HIGH" : "LOW",
+                    raw == HIGH ? "HIGH" : "LOW");
+    }
   }
-  if(millis() - lastPirChangeMs > PIR_STABLE_MS){    // 値変化から200[ms]経っていたら
-    pirState = raw;                                  // 確定
+  
+  if(millis() - lastPirChangeMs > PIR_STABLE_MS) {   // 値変化から50[ms]経っていたら
+    if(pirState != raw) {  // 状態が実際に変わる時のみ処理
+      int oldPirState = pirState;
+      pirState = raw;                                // PIR状態を更新
+      
+      // 人検知時（LOW → HIGH）
+      if(oldPirState == LOW && pirState == HIGH) {
+        lastPersonDetectedMs = millis();             // 最終検知時刻を更新
+        
+        if (!personPresent) {
+          personPresent = true;                      // 在室状態に変更
+          Serial.println("=====================================");
+          Serial.println(">>> 人感センサー検知: 在室状態に変更 <<<");
+          Serial.println("=====================================");
+        } else {
+          if(debugMode) {
+            Serial.printf("[PIR] 在室状態を延長（最終検知時刻を更新）\n");
+          }
+        }
+      }
+    }
+  }
+  
+  // タイムアウトチェック（人がいるはずなのに長時間検知されない場合）
+  if (personTimeoutEnabled && personPresent && 
+      (millis() - lastPersonDetectedMs) > PERSON_TIMEOUT_MS) {
+    personPresent = false;
+    Serial.println("=====================================");
+    Serial.printf(">>> タイムアウト: %lu分間検知されないため不在状態に変更 <<<\n", 
+                  PERSON_TIMEOUT_MS / 60000);
+    Serial.println("=====================================");
   }
 }
 
 // msを時:分:秒に変換
-String formatTime(unsigned long ms){
+String formatTime(unsigned long ms) {
   unsigned long sec = ms/1000;
   unsigned int h = (sec/3600)%24;
   unsigned int m = (sec/60)%60;
@@ -105,12 +250,11 @@ String formatTime(unsigned long ms){
 }
 
 // 月日出力表示取得
-String getMonthDayKey(struct tm *timeinfo){
+String getMonthDayKey(struct tm *timeinfo) {
   char buf[8];
   sprintf(buf,"%02d-%02d", timeinfo->tm_mon+1, timeinfo->tm_mday);
   return String(buf);
 }
-
 
 // デバイスの存在確認
 bool checkDeviceExists(String deviceId) {
@@ -145,12 +289,14 @@ bool checkDeviceExists(String deviceId) {
 String initializeDeviceId(String deviceType) {
   // まず保存済みIDを読み込み
   String storedId = loadDeviceId();
-  
+  String storedRegistrationId = loadRegistrationId();
+
   if (storedId != "") {
     // 保存済みIDがある場合、サーバーで確認
     Serial.println("保存済みデバイスID検出: " + storedId);
     if (checkDeviceExists(storedId)) {
       Serial.println("デバイスID確認完了: " + storedId);
+      registrationCode = storedRegistrationId;
       deviceId = storedId;
       return storedId;
     } else {
@@ -181,10 +327,12 @@ String registerDevice(String deviceType) {
     deserializeJson(responseDoc, response);
     
     String getDeviceId = responseDoc["data"]["deviceId"];
-    String registrationCode = responseDoc["data"]["registrationCode"];
+    String getRegistrationCode = responseDoc["data"]["registrationCode"];
     
+    registrationCode = getRegistrationCode;
     deviceId = getDeviceId;
-    saveDeviceId(deviceId);  // フラッシュメモリに保存
+
+    saveDeviceId(deviceId, registrationCode);  // フラッシュメモリに保存
     
     Serial.println("新規デバイス登録完了");
     Serial.println("Device ID: " + deviceId);
@@ -233,55 +381,161 @@ bool sendUsageData(String deviceId, String usageType, float amount, String apiKe
   }
 }
 
+void factoryReset() {
+    preferences.begin("device", false);
+    preferences.clear();  // 名前空間内の全データ削除
+    preferences.end();
+    Serial.println("工場出荷時設定にリセット完了");
+}
 
-void setup(){
+void setup() {
   Serial.begin(115200);
-  pinMode(PIN_PIR, INPUT);
-  analogReadResolution(12);
+  
+  // PIRセンサーのピン設定（プルアップ抵抗を有効化）
+  pinMode(PIN_PIR, INPUT_PULLUP);
+  
+  // PIRセンサーの初期化待機（センサー安定化のため）
+  Serial.println("PIRセンサー安定化待機中...");
+  delay(2000);  // 2秒待機
+  
+  // PIRセンサーの初期状態を確認
+  int initialPirState = digitalRead(PIN_PIR);
+  Serial.printf("PIRセンサー初期状態: %s\n", initialPirState == HIGH ? "HIGH" : "LOW");
 
   Serial.println("=== 無駄点灯ロガー開始 ===");
 
-// Wi-Fi接続 
+  // BH1750センサー初期化
+  if (!initBH1750()) {
+    Serial.println("照度センサーの初期化に失敗しました。プログラムを停止します。");
+    while(1);  // 停止
+  }
+
+  // Wi-Fi接続 
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("WiFi connecting");
-  while(WiFi.status() != WL_CONNECTED){
+  while(WiFi.status() != WL_CONNECTED) {
     delay(500); Serial.print(".");
   }
   Serial.println(" connected!");
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   initializeDeviceId("electricity");  // 固定デバイスID初期化
-  // NTP設定
+  
+  Serial.printf("照度判定設定:\n");
+  Serial.printf("  蛍光灯点灯判定: %.1f lux以上\n", LUX_FLUORESCENT_ON);
+  Serial.printf("  蛍光灯消灯判定: %.1f lux以下\n", LUX_FLUORESCENT_OFF);
+  Serial.printf("  太陽光除外: %.1f lux以上は太陽光と判断\n", LUX_SUNLIGHT_MAX);
+  Serial.printf("  状態安定化: %lu ms\n", LIGHT_STABLE_MS);
+  Serial.printf("PIR設定: 安定化時間 %lu ms\n", PIR_STABLE_MS);
+  Serial.println("==== 人感センサー: タイムアウト方式 ====");
+  Serial.println("  人検知 → 在室状態に変更");
+  Serial.printf("  %lu分間検知なし → 自動的に不在状態\n", PERSON_TIMEOUT_MS / 60000);
+  Serial.println("  より安定で自然な動作");
+  Serial.println("==== 測定条件: 厳密モード ====");
+  Serial.println("  ✅ 人が不在状態");
+  Serial.println("  ✅ 蛍光灯が点灯状態");
+  Serial.println("  ✅ 照明状態が安定（3秒以上変化なし）");
+  Serial.println("  ❌ 太陽光は除外");
+  Serial.println("==== データ送信: 1時間ごと ====");
+  Serial.println("  📊 送信データ: 無駄な秒数");
+  Serial.println("  ⏰ 送信間隔: 毎時間");
+  Serial.println("シリアルコマンド:");
+  Serial.println("  'd' : デバッグモードON/OFF");
+  Serial.println("  't' : 手動で在室状態をトグル");
+  Serial.println("  'l' : 手動で蛍光灯状態をトグル");
+  Serial.println("  'o' : タイムアウト機能ON/OFF");
+  Serial.println("  'r' : 人の在室状態を強制リセット");
+  Serial.println("=====================================");
 }
 
-//5分用
-void loop(){
+void loop() {
   updateBrightness();
   updatePir();
 
-  bool noPerson = (pirState == LOW);
-  bool shouldMeasure = (isBright && noPerson);
+  // シリアル入力でデバッグモードのON/OFF切り替え
+  if (Serial.available() > 0) {
+    char input = Serial.read();
+    if (input == 'd' || input == 'D') {
+      debugMode = !debugMode;
+      Serial.printf("デバッグモード: %s\n", debugMode ? "ON" : "OFF");
+    }
+    // 手動で人の状態をトグル（テスト用）
+    else if (input == 't' || input == 'T') {
+      personPresent = !personPresent;
+      if (personPresent) {
+        lastPersonDetectedMs = millis(); // 在室にする場合は検知時刻も更新
+      }
+      Serial.println("=====================================");
+      Serial.printf(">>> 手動変更: 人の状態が「%s」に変更されました <<<\n", 
+                    personPresent ? "在室" : "不在");
+      Serial.println("=====================================");
+    }
+    // 手動で蛍光灯状態をトグル（テスト用）
+    else if (input == 'l' || input == 'L') {
+      isFluorescentOn = !isFluorescentOn;
+      lastLightChangeMs = millis();
+      Serial.println("=====================================");
+      Serial.printf(">>> 手動変更: 蛍光灯状態が「%s」に変更されました <<<\n", 
+                    isFluorescentOn ? "点灯" : "消灯");
+      Serial.println("=====================================");
+    }
+    // タイムアウト機能のON/OFF
+    else if (input == 'o' || input == 'O') {
+      personTimeoutEnabled = !personTimeoutEnabled;
+      Serial.printf("タイムアウト機能: %s\n", personTimeoutEnabled ? "有効" : "無効");
+      if (personTimeoutEnabled) {
+        Serial.printf("タイムアウト時間: %lu分\n", PERSON_TIMEOUT_MS / 60000);
+      }
+    }
+    // 人の在室状態を強制リセット
+    else if (input == 'r' || input == 'R') {
+      personPresent = false;
+      Serial.println("人の在室状態を強制的に不在にリセットしました");
+    }
+    // 入力バッファをクリア
+    while(Serial.available() > 0) Serial.read();
+  }
+
+  // 蛍光灯状態の安定化チェック
+  bool lightStateStable = (millis() - lastLightChangeMs) > LIGHT_STABLE_MS;
+  
+  // 厳密な測定条件: 人不在 ＆ 蛍光灯点灯 ＆ 状態安定
+  bool shouldMeasure = (!personPresent && isFluorescentOn && lightStateStable);
 
   // 測定開始/停止
-  if(shouldMeasure && !measuring){
+  if(shouldMeasure && !measuring) {
     measuring = true;
     measureStart = millis();
-  } else if(!shouldMeasure && measuring){
+    Serial.println("=====================================");
+    Serial.println(">>> 無駄点灯測定開始 <<<");
+    Serial.println("条件: 人不在 ＆ 蛍光灯点灯 ＆ 状態安定");
+    Serial.println("=====================================");
+  } else if(!shouldMeasure && measuring) {
     measuring = false;
     unsigned long dur = millis() - measureStart;
     wastedMs += dur;
-    fiveMinMs += dur;  // hourlyMs → fiveMinMs
+    hourlyMs += dur;  // fiveMinMs → hourlyMs
+    
+    // 停止理由を特定
+    String reason = "";
+    if (personPresent) reason = "人が在室";
+    else if (!isFluorescentOn) reason = "蛍光灯消灯";
+    else if (!lightStateStable) reason = "照明状態が不安定";
+    
+    Serial.println("=====================================");
+    Serial.printf(">>> 無駄点灯測定終了 <<<\n");
+    Serial.printf("理由: %s | 継続時間: %s\n", reason.c_str(), formatTime(dur).c_str());
+    Serial.println("=====================================");
   }
 
   // 1秒ごとの処理
   static unsigned long lastPrint = 0;
-  if(millis() - lastPrint >= 1000){
+  if(millis() - lastPrint >= 1000) {
     lastPrint = millis();
 
     unsigned long currentMs = wastedMs + (measuring?(millis()-measureStart):0);
-    unsigned long currentFiveMinMs = fiveMinMs + (measuring?(millis()-measureStart):0);  // 変数名変更
+    unsigned long currentHourlyMs = hourlyMs + (measuring?(millis()-measureStart):0);  // fiveMinMs → hourlyMs
 
-    float wastedFiveMin_h = currentFiveMinMs / 3600000.0;           // 5分間の時間を時間単位に
-    float wastedKWh_5min = wastedFiveMin_h * LIGHT_POWER_W / 1000.0;  // 5分間の無駄電力
+    unsigned long wastedHourlySeconds = currentHourlyMs / 1000;  // 1時間の無駄秒数を計算
 
     // 現在時刻
     time_t now;
@@ -292,122 +546,58 @@ void loop(){
     int currentHour = timeinfo.tm_hour;
     int currentMin = timeinfo.tm_min;
     int currentDay = timeinfo.tm_mday;
-    
-    // 5分単位を計算（0, 5, 10, 15, ... 55）
-    int currentFiveMin = (currentMin / 5) * 5;
 
-    // 5分が変わったら確定
-    if(lastFiveMin != -1 && currentFiveMin != lastFiveMin){
-      Serial.printf("[集計] %02d:%02d の無駄時間: %s | 無駄電力: %.3f kWh\n",
-        currentHour,
-        lastFiveMin,  // 前の5分間の開始時刻
-        formatTime(currentFiveMinMs).c_str(),
-        wastedKWh_5min
+    // 1時間が変わったら確定
+    if(lastHour != -1 && currentHour != lastHour) {
+      Serial.printf("[集計] %02d時台の無駄時間: %s | 無駄秒数: %lu秒\n",
+        lastHour,  // 前の時間
+        formatTime(currentHourlyMs).c_str(),
+        wastedHourlySeconds
       );
-      sendUsageData(deviceId, "electricity", wastedKWh_5min, "aquarium-esp32-secure-key-2024");
-      dailyTotalKWh += wastedKWh_5min;
-      dailyTotalMs += currentFiveMinMs;
-      fiveMinMs = 0;  // 次の5分間のためリセット
+      
+      // 無駄秒数をfloatとして送信（API仕様に合わせるため）
+      sendUsageData(deviceId, "electricity", (float)wastedHourlySeconds, "aquarium-esp32-secure-key-2024");
+      
+      // 日次累計に追加
+      float wastedHourly_h = currentHourlyMs / 3600000.0;
+      float wastedKWh_hourly = wastedHourly_h * LIGHT_POWER_W / 1000.0;
+      dailyTotalKWh += wastedKWh_hourly;
+      dailyTotalMs += currentHourlyMs;
+      
+      hourlyMs = 0;  // 次の1時間のためリセット
     }
 
     // 現在時刻記録
-    lastFiveMin = currentFiveMin;  // lastHour → lastFiveMin
+    lastHour = currentHour;
     lastDay = currentDay;
     
-    // 状態を出力（表示部分も5分間に変更）
+    // 現在の照度値を取得して表示
+    float currentLux = lightMeter.readLightLevel();
+    
+    // 状態を出力（タイムアウト方式の詳細状態も表示）
     String nowClock = formatTime(millis());
+    unsigned long timeSinceDetection = millis() - lastPersonDetectedMs;
+    
     Serial.print("時刻: "); Serial.print(nowClock);
-    Serial.print(" | 明るさ: "); Serial.print(isBright?"明るい":"暗い");
-    Serial.print(" | 人: "); Serial.print(noPerson?"いない":"いる");
-    Serial.print(" | 無駄時間(5分): "); Serial.print(formatTime(currentFiveMinMs));
-    Serial.print(" | 無駄電力(5分): "); Serial.print(wastedKWh_5min,3); Serial.println(" kWh");
-    Serial.print(" | デバイスID: "); Serial.print(deviceId);
+    Serial.print(" | 照度: "); Serial.printf("%.1f lux", currentLux);
+    Serial.print(" | 蛍光灯: "); Serial.print(isFluorescentOn ? "点灯" : "消灯");
+    Serial.print(" | 安定: "); Serial.print(lightStateStable ? "○" : "×");
+    Serial.print(" | PIR: "); Serial.print(pirState == HIGH ? "検出" : "なし");
+    Serial.print(" | 人: "); Serial.print(personPresent ? "在室" : "不在");
+    
+    // タイムアウト情報の表示
+    if (personPresent && personTimeoutEnabled) {
+      unsigned long timeoutRemaining = PERSON_TIMEOUT_MS - timeSinceDetection;
+      if (timeoutRemaining > 0) {
+        Serial.printf(" (残り%lu分)", timeoutRemaining / 60000);
+      }
+    } else if (personPresent && !personTimeoutEnabled) {
+      Serial.print(" (手動)");
+    }
+    
+    Serial.print(" | 測定: "); Serial.print(measuring ? "実行中" : "停止中");
+    Serial.print(" | 無駄時間(1時間): "); Serial.print(formatTime(currentHourlyMs));
+    Serial.print(" | 無駄秒数(1時間): "); Serial.printf("%lu秒", wastedHourlySeconds);
+    Serial.print(" | 登録コード: "); Serial.println(registrationCode);
   }
 }
-
-// void loop(){
-//   updateBrightness();     // 今明るいかを最新にする関数呼び出し
-//   updatePir();            // 200[ms]安定したらpirStateに反映
-
-//   // pirStateで人がいるか判断
-//   bool noPerson = (pirState == LOW);             // 人がいないpirState == LOWならnoPerson = true
-//   bool shouldMeasure = (isBright && noPerson);   //明るいかつ人がいないならshouldMeasure = true
-
-//   // 測定開始/停止
-//   if(shouldMeasure && !measuring){                 // shouldMeasure == trueで測定してないとき測定開始する
-//     measuring = true;                              // 測定中
-//     measureStart = millis();                       // 測定開始時刻[ms]
-//   } else if(!shouldMeasure && measuring){          // shouldMeasure == falseで測定しているとき測定停止する
-//     measuring = false;
-//     unsigned long dur = millis() - measureStart;   // millis() - measureStart現在時刻から開始時刻を引いて経過時間[ms]得る
-//     wastedMs += dur;                               // 測定時間を日の合計無駄時間に足す
-//     hourlyMs += dur;                               // 測定時間を時間の合計無駄時間に足す
-//   }
-
-//   // 1秒ごとの処理
-//   static unsigned long lastPrint = 0;     // staticで最初一回だけ0で初期化
-//   if(millis() - lastPrint >= 1000){       // millis():esp32が起動してからの経過時間[ms]　lastPrintから1000[ms]経ったら処理する
-//     lastPrint = millis();                 // 処理時間更新　また一秒後まで処理しない
-
-//     // 
-//     unsigned long currentMs = wastedMs + (measuring?(millis()-measureStart):0);
-//     unsigned long currentHourMs = hourlyMs + (measuring?(millis()-measureStart):0);
-
-//     float wastedHour_h = currentHourMs / 3600000.0;             // [ms]を[h]に
-//     float wastedKWh_h = wastedHour_h * LIGHT_POWER_W / 1000.0;  // [W]とかけて[kWh]に
-
-//     // 現在時刻
-//     time_t now;
-//     struct tm timeinfo;
-//     time(&now);
-//     localtime_r(&now,&timeinfo);          // 年月日、時分秒に
-
-//     int currentHour = timeinfo.tm_hour;   // 現在時刻の時0~23
-//     int currentDay  = timeinfo.tm_mday;   // 現在日付の日1~31
-
-//     // 時刻が変わったら1時間分を確定
-//     if(lastHour != -1 && currentHour != lastHour){                         // lastHour != -1：初期状態でない　currentHour != lastHour：前回の時間と異なる
-//       Serial.printf("[集計] %02d時の無駄時間: %s | 無駄電力: %.3f kWh\n",
-//         lastHour,
-//         formatTime(currentHourMs).c_str(),
-//         wastedKWh_h
-//       );
-//       dailyTotalKWh += wastedKWh_h;    // 無駄電力を日合計に足す
-//       dailyTotalMs  += currentHourMs;  // 無駄時間を日合計に足す
-//       hourlyMs = 0;                    // 次の時間の測定のためリセット
-//     }
-
-//     // 0時になったら前日分を出力
-//     if(lastHour == 23 && currentHour == 0){    // 前回の時刻が23時で今回の時刻が0時
-//       time_t yesterday = now - 24*3600;        // 24*3600:24時間を秒に変換　今から24時間前(昨日)を得る
-//       struct tm prevInfo;                      // prevInfo:昨日の月日情報が入る
-//       localtime_r(&yesterday,&prevInfo);
-
-//       String prevDate = getMonthDayKey(&prevInfo);   // getMonthDayKey():月日を文字列にする　prevDate:昨日の日付
-//       Serial.printf("=== 日合計 (%s): 無駄時間 %s | 無駄電力 %.3f kWh ===\n",
-//         prevDate.c_str(),
-//         formatTime(dailyTotalMs).c_str(),
-//         dailyTotalKWh
-//       );
-
-//       // リセット
-//       dailyTotalKWh = 0;
-//       dailyTotalMs  = 0;
-//       wastedMs = 0;
-//       hourlyMs = 0;
-//     }
-
-//     // 現在時刻記録
-//     lastHour = currentHour;
-//     lastDay  = currentDay;
-
-//     // 状態を出力
-//     String nowClock = formatTime(millis());
-//     Serial.print("時刻: "); Serial.print(nowClock);
-//     Serial.print(" | 明るさ: "); Serial.print(isBright?"明るい":"暗い");
-//     Serial.print(" | 人: "); Serial.print(noPerson?"いない":"いる");
-//     Serial.print(" | 無駄時間: "); Serial.print(formatTime(currentHourMs));
-//     Serial.print(" | 無駄電力: "); Serial.print(wastedKWh_h,3); Serial.println(" kWh");
-//   }
-// }
-
