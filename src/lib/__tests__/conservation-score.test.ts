@@ -8,17 +8,17 @@ import {
 
 describe('Conservation Score Tests', () => {
   describe('calculateConservationScore', () => {
-    test('完全な節約（使用量0）の場合は100点', () => {
+    test('完全な節約（使用量0）の場合は50点', () => {
       const result = calculateConservationScore({
         waterUsage: 0,
         electricityUsage: 0
       });
-      
-      expect(result.conservationScore).toBe(100);
-      expect(result.waterReduction).toBe(1);
-      expect(result.electricityReduction).toBe(1);
-      expect(result.details.waterSaved).toBe(BASELINE_CONFIG.WATER);
-      expect(result.details.electricitySaved).toBe(BASELINE_CONFIG.ELECTRICITY);
+
+      expect(result.conservationScore).toBe(50); // 水0→基準値、電気0→0のまま = (0 + 1) * 50 = 50
+      expect(result.waterReduction).toBe(0); // 基準値なので削減なし
+      expect(result.electricityReduction).toBe(1); // 0時間なので100%削減
+      expect(result.details.waterSaved).toBe(0); // 基準値なので節約なし
+      expect(result.details.electricitySaved).toBe(BASELINE_CONFIG.ELECTRICITY); // 電気は完全節約
     });
 
     test('基準値と同等使用の場合は0点', () => {
@@ -72,10 +72,79 @@ describe('Conservation Score Tests', () => {
 
     test('未定義値の処理', () => {
       const result = calculateConservationScore({});
-      
-      expect(result.conservationScore).toBe(100);
-      expect(result.details.waterUsage).toBe(0);
-      expect(result.details.electricityUsage).toBe(0);
+
+      expect(result.conservationScore).toBe(50); // 水0→基準値、電気0→0のまま = (0 + 1) * 50 = 50
+      expect(result.details.waterUsage).toBe(BASELINE_CONFIG.WATER); // 水0の場合は基準値適用
+      expect(result.details.electricityUsage).toBe(0); // 電気は0のまま（デバイス情報なし）
+    });
+  });
+
+  describe('条件に応じた基準値適用ロジック', () => {
+    const testDate = new Date('2024-01-15');
+    const yesterdayDate = new Date('2024-01-14');
+    const sameDayDate = new Date('2024-01-15');
+
+    test('水使用量が0の場合は常に基準値として計算', () => {
+      const result = calculateConservationScore({
+        waterUsage: 0,
+        electricityUsage: 0.25, // 15分
+        calculationDate: testDate
+      });
+
+      expect(result.details.waterUsage).toBe(BASELINE_CONFIG.WATER); // 基準値100L
+      expect(result.details.electricityUsage).toBe(0.25); // そのまま15分
+      expect(result.conservationScore).toBe(25); // (0 + 0.5) * 50 = 25
+    });
+
+    test('電気使用量が0かつデバイスlastSeenが当日でない場合は基準値として計算', () => {
+      const result = calculateConservationScore({
+        waterUsage: 50,
+        electricityUsage: 0,
+        electricityDeviceLastSeen: yesterdayDate,
+        calculationDate: testDate
+      });
+
+      expect(result.details.waterUsage).toBe(50); // そのまま50L
+      expect(result.details.electricityUsage).toBe(BASELINE_CONFIG.ELECTRICITY); // 基準値0.5時間
+      expect(result.conservationScore).toBe(25); // (0.5 + 0) * 50 = 25
+    });
+
+    test('電気使用量が0でもデバイスlastSeenが当日の場合は0のまま計算', () => {
+      const result = calculateConservationScore({
+        waterUsage: 50,
+        electricityUsage: 0,
+        electricityDeviceLastSeen: sameDayDate,
+        calculationDate: testDate
+      });
+
+      expect(result.details.waterUsage).toBe(50); // そのまま50L
+      expect(result.details.electricityUsage).toBe(0); // 0のまま
+      expect(result.conservationScore).toBe(75); // (0.5 + 1.0) * 50 = 75
+    });
+
+    test('電気使用量が0でもデバイス情報がない場合は0のまま計算', () => {
+      const result = calculateConservationScore({
+        waterUsage: 50,
+        electricityUsage: 0,
+        calculationDate: testDate
+      });
+
+      expect(result.details.waterUsage).toBe(50); // そのまま50L
+      expect(result.details.electricityUsage).toBe(0); // 0のまま（デバイス情報なし）
+      expect(result.conservationScore).toBe(75); // (0.5 + 1.0) * 50 = 75
+    });
+
+    test('両方の条件が適用される場合', () => {
+      const result = calculateConservationScore({
+        waterUsage: 0,
+        electricityUsage: 0,
+        electricityDeviceLastSeen: yesterdayDate,
+        calculationDate: testDate
+      });
+
+      expect(result.details.waterUsage).toBe(BASELINE_CONFIG.WATER); // 基準値100L
+      expect(result.details.electricityUsage).toBe(BASELINE_CONFIG.ELECTRICITY); // 基準値0.5時間
+      expect(result.conservationScore).toBe(0); // (0 + 0) * 50 = 0
     });
   });
 
@@ -156,22 +225,22 @@ describe('Conservation Score Tests', () => {
 
   describe('統合テスト', () => {
     test('現実的な使用量パターン', () => {
-      // 節水を頑張った日
+      // 節約を頑張った日
       const goodDay = calculateConservationScore({
-        waterUsage: 70,
-        electricityUsage: 4
+        waterUsage: 70,  // 水 70L
+        electricityUsage: 0.25  // 無駄な照明使用時間 15分
       });
 
-      expect(goodDay.conservationScore).toBe(25); // (0.3 + 0.2) * 50 = 25
-      expect(getScoreLevel(goodDay.conservationScore)).toBe('poor');
+      expect(goodDay.conservationScore).toBe(40); // (0.3 + 0.5) * 50 = 40
+      expect(getScoreLevel(goodDay.conservationScore)).toBe('average');
 
       // 普通の日
       const averageDay = calculateConservationScore({
-        waterUsage: 90,
-        electricityUsage: 4.5
+        waterUsage: 90,  // 水 90L
+        electricityUsage: 0.5  // 無駄な照明使用時間 30分（基準値）
       });
 
-      expect(averageDay.conservationScore).toBe(10); // (0.1 + 0.1) * 50 = 10
+      expect(averageDay.conservationScore).toBe(5); // (0.1 + 0) * 50 = 5
       expect(getScoreLevel(averageDay.conservationScore)).toBe('very_poor');
     });
   });

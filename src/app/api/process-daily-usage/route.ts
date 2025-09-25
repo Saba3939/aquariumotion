@@ -5,6 +5,49 @@ import { createSuccessResponse, createErrorResponse } from "@/lib/validation";
 import * as admin from "firebase-admin";
 
 /**
+ * ユーザーの電気デバイス情報を取得する
+ */
+async function getUserElectricityDeviceInfo(userId: string) {
+  const db = getDB();
+  if (!db) return null;
+
+  try {
+    const devicesSnapshot = await db
+      .collection("devices")
+      .where("userId", "==", userId)
+      .where("deviceType", "==", "electricity")
+      .where("isActive", "==", true)
+      .get();
+
+    if (devicesSnapshot.empty) {
+      return null;
+    }
+
+    // 最新のlastSeenを持つデバイスを取得
+    let latestDevice = null;
+    let latestLastSeen = null;
+
+    for (const doc of devicesSnapshot.docs) {
+      const deviceData = doc.data();
+      const lastSeen = deviceData.lastSeen;
+
+      if (!latestLastSeen || (lastSeen && lastSeen.toDate() > latestLastSeen)) {
+        latestDevice = deviceData;
+        latestLastSeen = lastSeen ? lastSeen.toDate() : null;
+      }
+    }
+
+    return {
+      deviceId: latestDevice?.deviceId || null,
+      lastSeen: latestLastSeen
+    };
+  } catch (error) {
+    console.error("電気デバイス情報取得エラー:", error);
+    return null;
+  }
+}
+
+/**
  * ログイン時にdailyUsageデータを処理して節約スコアを自動加算するAPI
  * POST /api/process-daily-usage
  */
@@ -138,13 +181,34 @@ export async function POST(request: NextRequest) {
 				// 日付順にソートして処理
 				const sortedDates = Array.from(dateGroups.keys()).sort();
 
+				// ユーザーの電気デバイス情報を取得
+				const electricityDeviceInfo = await getUserElectricityDeviceInfo(userId);
+
 				for (const date of sortedDates) {
 					const dateGroup = dateGroups.get(date)!;
 
-					// その日の水と電気の合計使用量で総合スコアを計算
+					// その日のelectricityDeviceActiveの状態をチェック
+					let electricityDeviceWasActive = false;
+					for (const doc of dateGroup.docs) {
+						const dailyData = doc.data();
+						if (dailyData.electricityDeviceActive === true) {
+							electricityDeviceWasActive = true;
+							break;
+						}
+					}
+
+					// electricityDeviceActiveがtrueでない場合、電気使用量を基準値として処理
+					let adjustedElectricityUsage = dateGroup.totalElectricity;
+					if (!electricityDeviceWasActive) {
+						adjustedElectricityUsage = 1800; 
+					}
+
+					// その日の水と電気の合計使用量で総合スコアを計算（デバイス情報を考慮）
 					const conservationResult = calculateConservationScore({
 						waterUsage: dateGroup.totalWater,
-						electricityUsage: dateGroup.totalElectricity,
+						electricityUsage: adjustedElectricityUsage,
+						electricityDeviceLastSeen: electricityDeviceInfo?.lastSeen || null,
+						calculationDate: new Date(date + "T00:00:00Z"), // 処理対象日
 					});
 
 					// その日の全dailyUsageドキュメントに同じ総合スコアを設定
@@ -152,7 +216,9 @@ export async function POST(request: NextRequest) {
 						batch.update(doc.ref, {
 							conservationScore: conservationResult.conservationScore,
 							totalDailyWater: dateGroup.totalWater,
-							totalDailyElectricity: dateGroup.totalElectricity,
+							totalDailyElectricity: adjustedElectricityUsage, // 調整された電気使用量を記録
+							actualElectricityUsage: dateGroup.totalElectricity, // 実際の測定値も保持
+							electricityUsedBaseline: !electricityDeviceWasActive, // 基準値を使用したかどうかのフラグ
 							processedAt: admin.firestore.FieldValue.serverTimestamp(),
 						});
 					}

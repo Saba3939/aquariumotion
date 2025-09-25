@@ -25,6 +25,15 @@ export interface DailyUsage {
   waterUsage?: number;
   electricityUsage?: number;
   conservationScore?: number;   // 計算された節約スコア
+  // デバイス測定状態（実際に測定できたかの記録）
+  waterDeviceActive?: boolean;  // 水道デバイスが正常に稼働していたか
+  electricityDeviceActive?: boolean; // 電気デバイスが正常に稼働していたか
+  // process-daily-usage処理時の追加フィールド
+  totalDailyWater?: number;     // 日別合計水使用量
+  totalDailyElectricity?: number; // 日別合計電気使用量（調整後）
+  actualElectricityUsage?: number; // 実際の測定値
+  electricityUsedBaseline?: boolean; // 基準値を使用したかどうか
+  processedAt?: Timestamp;      // 処理日時
 }
 
 // デバイス情報
