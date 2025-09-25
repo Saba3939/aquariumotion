@@ -51,8 +51,7 @@ function initializeFirebaseAdmin() {
 			databaseURL: databaseURL
 		});
 
-		console.log(`Firebase Admin initialized with database URL: ${databaseURL}`);
-		firebaseInitialized = true;
+			firebaseInitialized = true;
 		return true;
 	} catch (error) {
 		console.error('Failed to initialize Firebase Admin SDK:', error);
@@ -147,7 +146,6 @@ export async function sendDeviceCommand(deviceId: string, command: Record<string
     processed: false
   });
 
-  console.log(`コマンド送信成功: デバイス${deviceId}`, command);
 }
 
 // デバイス状態監視

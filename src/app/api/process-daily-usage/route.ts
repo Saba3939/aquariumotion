@@ -61,7 +61,6 @@ export async function POST(request: NextRequest) {
 		// 強制実行の場合は初回ログインフラグを強制的にtrueにする
 		if (forceProcess) {
 			isFirstLoginToday = true;
-			console.log(`Force processing enabled for user ${userId}`);
 		}
 
 		// 現在の水族館データを取得
@@ -85,9 +84,6 @@ export async function POST(request: NextRequest) {
 
 		// その日初回ログインの場合のみ、前日までの未処理データを一括処理
 		if (isFirstLoginToday) {
-			console.log(
-				`Initial login today for user ${userId}, processing previous days...`
-			);
 
 			// インデックス不要なシンプルクエリ: userIdのみで取得
 			const dailyUsageSnapshot = await db
@@ -108,9 +104,6 @@ export async function POST(request: NextRequest) {
 			});
 
 			if (unprocessedDocs.length > 0) {
-				console.log(
-					`Found ${unprocessedDocs.length} unprocessed daily usage records`
-				);
 
 				// 日付ごとにグループ化して総合スコアを算出
 				const dateGroups = new Map<
@@ -171,9 +164,6 @@ export async function POST(request: NextRequest) {
 
 				// バッチ実行
 				await batch.commit();
-				console.log(
-					`Processed ${processedCount} records across ${processedDates.length} dates`
-				);
 			}
 		}
 
@@ -257,7 +247,6 @@ export async function POST(request: NextRequest) {
 
 			// 無限ループ防止
 			if (meterResets.length > 10) {
-				console.warn("Too many meter resets, breaking loop");
 				break;
 			}
 		}
@@ -298,14 +287,36 @@ export async function POST(request: NextRequest) {
 			await aquariumRef.update(updateData);
 		}
 
-		// ユーザーのlastLoginを今日の日付に更新
-		await userRef.set(
-			{
+		// ユーザーのlastLoginを今日の日付に更新（エラーハンドリングと詳細ログを追加）
+		try {
+			console.log(`=== ユーザー情報更新処理開始 ===`);
+			console.log(`userId: ${userId}`);
+			console.log(`todayString: ${todayString}`);
+			console.log(`前回のlastLogin: ${lastLogin}`);
+			console.log(`isFirstLoginToday: ${isFirstLoginToday}`);
+			
+			const userUpdateData = {
 				lastLogin: todayString,
 				lastLoginTime: admin.firestore.FieldValue.serverTimestamp(),
-			},
-			{ merge: true }
-		);
+			};
+			
+			console.log(`更新データ:`, userUpdateData);
+			
+			await userRef.set(userUpdateData, { merge: true });
+			
+			console.log(`✅ ユーザー情報更新成功`);
+			
+			// 更新後のデータを確認
+			const updatedUserDoc = await userRef.get();
+			if (updatedUserDoc.exists) {
+				const updatedData = updatedUserDoc.data()!;
+				console.log(`更新後のlastLogin: ${updatedData.lastLogin}`);
+				console.log(`更新後のlastLoginTime:`, updatedData.lastLoginTime);
+			}
+		} catch (userUpdateError) {
+			console.error(`❌ ユーザー情報更新エラー:`, userUpdateError);
+			// ユーザー情報更新が失敗してもAPIレスポンスは成功とする（水族館データの処理は完了しているため）
+		}
 
 		// レスポンスデータを構築
 		const responseData = {

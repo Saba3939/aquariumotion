@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 import { User, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
 import Image from "next/image";
 import UnityComponent from "@/components/unitycomponent";
 import DeviceManager from "@/components/device-manager";
@@ -12,7 +11,7 @@ import { useRouter } from "next/navigation";
 // カスタムフック
 import { useAuth } from "@/hooks/useAuth";
 import { useAquariumData } from "@/hooks/useAquariumData";
-import { useAquariumApi } from "@/hooks/useAquariumApi";
+import { useAquariumHandlers } from "@/hooks/useAquariumHandlers";
 
 // コンポーネント
 import LoginScreen from "@/components/login-screen";
@@ -28,15 +27,11 @@ import ICCardRegistration from "@/components/ic-card-registration";
 // 定数
 import { navigationItems } from "@/constants/navigation";
 
-// 型定義
-import { Fish } from "@/types/aquarium";
+// ユーティリティ
+import { showWelcomeToast } from "@/lib/toast-utils";
 
 export default function HomePage() {
 	const [activeTab, setActiveTab] = useState("home");
-	const [showBirthDialog, setShowBirthDialog] = useState(false);
-	const [newBornFish, setNewBornFish] = useState<Fish | null>(null);
-	const [showFishSelectionDialog, setShowFishSelectionDialog] = useState(false);
-	const [showLinkAquariumSelectionDialog, setShowLinkAquariumSelectionDialog] = useState(false);
 	// 節約メーターの前回の値を記録するref（初期値-1で未初期化状態を表現）
 	const previousConservationMeter = useRef<number>(-1);
 	const router = useRouter();
@@ -44,264 +39,34 @@ export default function HomePage() {
 	// カスタムフック
 	const { user, authLoading, authError, signInWithGoogle, signInWithGoogleRedirect, handleSignOut } = useAuth();
 	const { fishData, aquariumData, loading, fetchAquariumData, isFirstTimeUser, initialFishName, resetFirstTimeUserFlag } = useAquariumData(user);
-	const { hatchEgg, releaseFish, discardEgg, processDailyUsage, forceProcessDailyUsage, updateFishStatus, resetFishStatus } = useAquariumApi(user);
 
-	// Toast通知を表示する関数
-	const showToast = (data: { processedDates: string[]; totalScoreAdded: number }) => {
-		const message = `🌟 ${data.processedDates.length}日分のデータを一括処理しました！`;
-		const description = `総合節約スコア: ${data.totalScoreAdded >= 0 ? '+' : ''}${data.totalScoreAdded}点`;
-
-		if (data.totalScoreAdded > 0) {
-			toast.success(message, { description, duration: 5000 });
-		} else if (data.totalScoreAdded < 0) {
-			toast.error(message, { description, duration: 5000 });
-		} else {
-			toast.info(message, { description, duration: 4000 });
-		}
-	};
+	// ハンドラー関連のフック
+	const {
+		showBirthDialog,
+		setShowBirthDialog,
+		newBornFish,
+		showFishSelectionDialog,
+		setShowFishSelectionDialog,
+		showLinkAquariumSelectionDialog,
+		setShowLinkAquariumSelectionDialog,
+		handleHatchEgg,
+		handleReleaseFish,
+		handleDiscardEgg,
+		handleProcessDailyUsage,
+		handleForceProcessDailyUsage,
+		handleSendFishToLinkAquarium,
+		handleSendSelectedFishToLinkAquarium,
+		handleLogFishStatus,
+		handleResetFishStatus,
+	} = useAquariumHandlers({ user, fishData, fetchAquariumData });
 
 	// 初回ユーザー向けウェルカムダイアログを閉じる時の処理
 	const handleWelcomeDialogClose = () => {
 		resetFirstTimeUserFlag();
 		// 初回ログイン時のtoastを表示
-		toast.success('🎉 AQUARIUMOTIONへようこそ！', {
-			description: initialFishName ? `「${initialFishName}」があなたの水族館で泳ぎ始めました。環境保護活動で水族館を発展させていきましょう！` : '環境保護活動で水族館を発展させていきましょう！',
-			duration: 6000,
-		});
+		showWelcomeToast(initialFishName || undefined);
 	};
 
-	// 拡張されたAPI関数
-	const handleHatchEgg = async () => {
-		const result = await hatchEgg();
-		if (!result) return;
-
-		// 魚数上限に達している場合
-		if (result.error === 'FISH_LIMIT_EXCEEDED') {
-			setShowFishSelectionDialog(true);
-			return;
-		}
-
-		// 新しい魚の情報を表示
-		if (result.success && result.data?.newFish) {
-			setNewBornFish(result.data.newFish);
-			setShowBirthDialog(true);
-		}
-
-		// 水族館データを再取得して表示を更新
-		await fetchAquariumData();
-	};
-
-	const handleReleaseFish = async (fishId: string) => {
-		const result = await releaseFish(fishId);
-		if (!result) return;
-
-		if (result.success) {
-			console.log(`${result.data.releasedFish.fish_name}を手放しました`);
-			// 取捨選択ダイアログを閉じる
-			setShowFishSelectionDialog(false);
-			
-			// 卵の孵化を再実行（新しい魚の情報を取得）
-			const hatchResult = await hatchEgg();
-			if (hatchResult?.success && hatchResult.data?.newFish) {
-				setNewBornFish(hatchResult.data.newFish);
-				setShowBirthDialog(true);
-			}
-			
-			// 最後に水族館データを再取得して表示を更新
-			await fetchAquariumData();
-		}
-	};;
-
-	const handleDiscardEgg = async (eggCount = 1) => {
-		const result = await discardEgg(eggCount);
-		if (!result) return;
-
-		if (result.success) {
-			console.log(`${result.data.discardedEggCount}個の卵を放棄しました`);
-			// 取捨選択ダイアログを閉じる
-			setShowFishSelectionDialog(false);
-			
-			// 卵の孵化を再実行（新しい魚の情報を取得）
-			const hatchResult = await hatchEgg();
-			if (hatchResult?.success && hatchResult.data?.newFish) {
-				setNewBornFish(hatchResult.data.newFish);
-				setShowBirthDialog(true);
-			}
-			
-			// 最後に水族館データを再取得して表示を更新
-			await fetchAquariumData();
-		}
-	};;
-
-	const handleProcessDailyUsage = async () => {
-		const responseData = await processDailyUsage();
-		if (!responseData) return;
-
-		if (responseData.success) {
-			const data = responseData.data;
-
-			// 初回ログインで処理されたデータがある場合のみメッセージを表示
-			if (data.isFirstLoginToday && data.processedCount > 0) {
-				showToast(data);
-				// 水族館データを再取得して表示を更新
-				await fetchAquariumData();
-			} else if (data.isFirstLoginToday && data.processedCount === 0) {
-				toast.info('🌟 今日初回ログインです！', {
-					description: '処理対象の使用量データがありませんでした',
-					duration: 3000,
-				});
-			}
-		}
-	};
-
-	const handleForceProcessDailyUsage = useCallback(async () => {
-		const responseData = await forceProcessDailyUsage();
-		if (!responseData) return;
-
-		if (responseData.success) {
-			const data = responseData.data;
-			const toastMessage = `🔧 dailyUsage処理を強制実行`;
-			const toastDescription = data.processedCount > 0
-				? `${data.processedCount}件処理 | スコア変化: ${data.totalScoreAdded >= 0 ? '+' : ''}${data.totalScoreAdded}点`
-				: '処理対象データなし';
-
-			if (data.totalScoreAdded > 0) {
-				toast.success(toastMessage, { description: toastDescription, duration: 5000 });
-			} else if (data.totalScoreAdded < 0) {
-				toast.error(toastMessage, { description: toastDescription, duration: 5000 });
-			} else {
-				toast.info(toastMessage, { description: toastDescription, duration: 4000 });
-			}
-
-			// 水族館データを再取得して表示を更新
-			await fetchAquariumData();
-		} else {
-			toast.error('🔧 デバッグ処理エラー', {
-				description: responseData.error || '不明なエラー',
-				duration: 5000,
-			});
-		}
-	}, [forceProcessDailyUsage, fetchAquariumData]);
-
-	// raising状態の魚選択ダイアログを表示する関数
-	const handleSendFishToLinkAquarium = () => {
-		if (!fishData || fishData.length === 0) return;
-
-		// raising状態の魚を検索
-		const raisingFish = fishData.filter(fish => fish.status === 'raising');
-
-		if (raisingFish.length === 0) {
-			toast.error('🐟 Link水槽に送る魚がありません', {
-				description: 'raising状態の魚が見つかりませんでした',
-				duration: 3000,
-			});
-			return;
-		}
-
-		// 魚選択ダイアログを表示
-		setShowLinkAquariumSelectionDialog(true);
-	};
-
-	// 選択された魚をLink水槽に送る関数
-	const handleSendSelectedFishToLinkAquarium = async (fishId: string) => {
-		const selectedFish = fishData?.find(fish => fish.id === fishId);
-		if (!selectedFish) return;
-
-		try {
-			const result = await updateFishStatus(fishId, 'inLinkAquarium');
-
-			if (result && result.success) {
-				const { resetToRaisingFish } = result.data;
-				let description = `${selectedFish.fish_name}がLink水槽で泳いでいます`;
-
-				// 他の魚がraisingに戻された場合の情報を追加
-				if (resetToRaisingFish && resetToRaisingFish.length > 0) {
-					const resetFishNames = resetToRaisingFish.map((fish: { id: string; fish_name: string }) => fish.fish_name).join(', ');
-					description += `\n${resetFishNames}は水槽に戻りました`;
-				}
-
-				toast.success('🏊‍♀️ 魚をLink水槽に送りました！', {
-					description: description,
-					duration: 5000,
-				});
-
-				// 水族館データを再取得して表示を更新
-				await fetchAquariumData();
-			}
-		} catch (error) {
-			console.error('魚のステータス更新エラー:', error);
-			toast.error('🔴 魚の移動に失敗しました', {
-				description: error instanceof Error ? error.message : '不明なエラー',
-				duration: 4000,
-			});
-		}
-	};
-
-	// 魚のステータスをログ出力する関数（デバッグ用）
-	const handleLogFishStatus = () => {
-		if (!fishData || fishData.length === 0) {
-			console.log('🐟 魚データがありません');
-			toast.info('🐟 魚データがありません', {
-				description: '現在水槽に魚がいません',
-				duration: 2000,
-			});
-			return;
-		}
-
-		console.log('=== 🐟 魚ステータス詳細ログ ===');
-		console.table(fishData.map(fish => ({
-			名前: fish.fish_name,
-			ステータス: fish.status,
-			成長レベル: fish.growthLevel,
-			卵メーター: fish.eggMeter,
-			ID: fish.id,
-			誕生日: fish.birthDate?.toDate?.()?.toLocaleDateString() || '不明'
-		})));
-
-		const statusCounts = fishData.reduce((acc, fish) => {
-			acc[fish.status] = (acc[fish.status] || 0) + 1;
-			return acc;
-		}, {} as Record<string, number>);
-
-		console.log('ステータス別集計:', statusCounts);
-
-		toast.info('🐟 魚ステータスをログ出力しました', {
-			description: `総数: ${fishData.length}匹 | 詳細はコンソールを確認`,
-			duration: 3000,
-		});
-	};
-
-	// 魚のステータスをリセットする関数
-	const handleResetFishStatus = async () => {
-		if (!fishData || fishData.length === 0) {
-			toast.info('🐟 リセットする魚がありません', {
-				description: '現在水槽に魚がいません',
-				duration: 2000,
-			});
-			return;
-		}
-
-		try {
-			const result = await resetFishStatus();
-
-			if (result && result.success) {
-				const { updatedFishCount } = result.data;
-				toast.success('🔄 魚ステータスをリセットしました！', {
-					description: `${updatedFishCount}匹の魚をraisingに戻しました`,
-					duration: 4000,
-				});
-
-				// 水族館データを再取得して表示を更新
-				await fetchAquariumData();
-			}
-		} catch (error) {
-			console.error('魚ステータスリセットエラー:', error);
-			toast.error('🔴 魚ステータスのリセットに失敗しました', {
-				description: error instanceof Error ? error.message : '不明なエラー',
-				duration: 4000,
-			});
-		}
-	};
 
 	// ナビゲーション処理
 	const handleNavigation = (tab: string) => {

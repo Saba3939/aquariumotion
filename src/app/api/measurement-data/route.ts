@@ -99,7 +99,6 @@ export async function POST(request: NextRequest) {
     try {
       // ⭐ 重要：dailyUsageコレクションに水使用量を記録
       await saveDailyUsage(userId, 'water', totalAmount);
-      console.log(`✅ dailyUsage記録成功: userId=${userId}, water=${totalAmount}L`);
 
     } catch (dailyUsageError) {
       console.error('❌ dailyUsage記録失敗:', dailyUsageError);
@@ -134,8 +133,6 @@ export async function POST(request: NextRequest) {
           lastCompletedSession: sessionId
         });
       });
-
-      console.log(`✅ セッション完了: sessionId=${sessionId}, userId=${userId}, amount=${totalAmount}L`);
 
     } catch (transactionError) {
       console.error('❌ トランザクション失敗:', transactionError);
@@ -348,8 +345,7 @@ export async function PATCH(request: NextRequest) {
 
       try {
         await saveDailyUsage(userId, 'water', difference);
-        console.log(`✅ dailyUsage差分調整: userId=${userId}, 差分=${difference}L`);
-      } catch (error) {
+        } catch (error) {
         console.error('❌ dailyUsage差分調整失敗:', error);
       }
     }
