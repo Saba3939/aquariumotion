@@ -32,7 +32,7 @@ import { showWelcomeToast } from "@/lib/toast-utils";
 
 export default function HomePage() {
 	const [activeTab, setActiveTab] = useState("home");
-	// 節約メーターの前回の値を記録するref（初期値-1で未初期化状態を表現）
+	// 節約メータの前回の値を記録するref（初期値-1で未初期化状態を表現）
 	const previousConservationMeter = useRef<number>(-1);
 	const router = useRouter();
 
@@ -73,8 +73,6 @@ export default function HomePage() {
 		setActiveTab(tab);
 		if (tab === "profile") {
 			router.push("/profile");
-		} else if (tab === "ranking") {
-			router.push("/ranking");
 		} else if (tab === "device") {
 			// デバイス管理タブは同じページ内で表示
 			setActiveTab("device");
@@ -92,14 +90,14 @@ export default function HomePage() {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [user]);
 
-	// 節約メーターの監視（デバッグ用）
+	// 節約メータの監視（デバッグ用）
 	useEffect(() => {
 		if (!user || !aquariumData) return;
 
 		const currentMeter = aquariumData.conservationMeter;
 
-		console.log(`=== 節約メーター監視（デバッグ用） ===`);
-		console.log(`現在の節約メーター: ${currentMeter}`);
+		console.log(`=== 節約メータ監視（デバッグ用） ===`);
+		console.log(`現在の節約メータ: ${currentMeter}`);
 		console.log(`現在の環境レベル: ${aquariumData.enviromentLevel}`);
 
 		// 前回の値を更新
@@ -113,7 +111,7 @@ export default function HomePage() {
 		console.log(`=== 魚ステータス監視（デバッグ用） ===`);
 		console.log(`魚の総数: ${fishData.length}`);
 		fishData.forEach((fish, index) => {
-			console.log(`魚${index + 1}: ${fish.fish_name} | ステータス: ${fish.status} | 成長レベル: ${fish.growthLevel} | 卵メーター: ${fish.eggMeter}`);
+			console.log(`魚${index + 1}: ${fish.fish_name} | ステータス: ${fish.status} | 成長レベル: ${fish.growthLevel} | たまごメータ: ${fish.eggMeter}`);
 		});
 
 		const raisingFish = fishData.filter(fish => fish.status === 'raising');
@@ -230,7 +228,7 @@ export default function HomePage() {
 								{/* 水槽環境レベル */}
 								<AquariumLevel aquariumData={aquariumData} />
 
-								{/* 卵の孵化ステータス */}
+								{/* たまごの孵化ステータス */}
 								<EggHatchingStatus
 									aquariumData={aquariumData}
 									hatchEgg={handleHatchEgg}
@@ -299,18 +297,6 @@ export default function HomePage() {
 									</h2>
 									<DeviceManager />
 
-									<div className="mt-8 pt-6 border-t border-gray-200">
-										<h3 className="text-lg font-medium text-gray-700 mb-4">🔧 開発・テスト用ツール</h3>
-										<p className="text-sm text-gray-600 mb-4">
-											実際のESP32デバイスがない場合は、シミュレーターでテストできます。
-										</p>
-										<button
-											onClick={() => window.open('/esp32-simulator', '_blank')}
-											className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg text-sm"
-										>
-											🔌 ESP32シミュレーターを開く
-										</button>
-									</div>
 								</div>
 							</div>
 						)}

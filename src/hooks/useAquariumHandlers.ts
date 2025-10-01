@@ -189,7 +189,7 @@ export const useAquariumHandlers = ({
       名前: fish.fish_name,
       ステータス: fish.status,
       成長レベル: fish.growthLevel,
-      卵メーター: fish.eggMeter,
+      たまごメータ: fish.eggMeter,
       ID: fish.id,
       誕生日: fish.birthDate?.toDate?.()?.toLocaleDateString() || '不明'
     })));

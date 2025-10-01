@@ -1,5 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Fish, Aquarium } from "@/types/aquarium";
+import FishIcon from "@/components/fish-icon";
+import Image from "next/image";
 
 interface FishStatusProps {
 	fishData: Fish[];
@@ -23,8 +25,9 @@ export default function FishStatus({
 
 	return (
 		<div className='bg-white rounded-2xl shadow-lg p-6'>
-			<h2 className='text-xl font-semibold text-gray-800 mb-4 flex items-center'>
-				🐠 魚のステータス
+			<h2 className='text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2'>
+				<FishIcon typeId={0} size={32} />
+				魚のステータス
 			</h2>
 
 			{/* Link水槽への魚送信機能 */}
@@ -36,7 +39,7 @@ export default function FishStatus({
 								🔗 Link水槽
 							</h3>
 							<p className='text-sm text-blue-600 mt-1'>
-								魚をLink水槽に送って他のユーザーと交流しましょう（1匹まで）
+								魚をLink水槽に送ってLink水槽で泳がせましょう（1匹まで）
 							</p>
 						</div>
 						<Button
@@ -63,15 +66,17 @@ export default function FishStatus({
 							}`}
 						>
 							<div className='flex items-center space-x-4'>
-								<div className='text-4xl'>
-									🐠
-								</div>
+								<FishIcon typeId={fish.type_id} size={64} />
 								<div>
 									<h3 className='font-medium text-gray-800'>
 										{fish.fish_name}
 									</h3>
 									<p className='text-sm text-gray-600'>
-										成長レベル: {fish.growthLevel} | 状態: {fish.status}
+										成長レベル: {fish.growthLevel} | 状態: {
+											fish.status === 'raising' ? '育成中' :
+											fish.status === 'inLinkAquarium' ? 'Link水槽で泳いでいる' :
+											fish.status
+										}
 									</p>
 								</div>
 							</div>
@@ -79,7 +84,7 @@ export default function FishStatus({
 								<div className={`text-sm mb-2 ${
 									fish.eggMeter >= 3 ? 'text-orange-600 font-semibold animate-bounce' : 'text-gray-600'
 								}`}>
-									{fish.eggMeter >= 3 ? '✨ エッグメーター満タン！' : 'エッグメーター'}
+									{fish.eggMeter >= 3 ? '✨ たまごメータ満タン！' : 'たまごメータ'}
 								</div>
 								<div className='flex items-center gap-1'>
 									{[...Array(3)].map((_, index) => (
@@ -109,27 +114,27 @@ export default function FishStatus({
 					{(aquariumData?.unhatchedEggCount || 0) > 0 ? (
 						<div className='mt-4 space-y-3'>
 							<div className='flex items-center justify-center space-x-2'>
-								<span className='text-2xl'>🥚</span>
+								<Image src="/egg-icon.png" alt="たまご" width={32} height={32} className='inline-block' />
 								<span className='text-lg font-medium text-gray-700'>
-									孵化できる卵: {aquariumData?.unhatchedEggCount}個
+									孵化できるたまご: {aquariumData?.unhatchedEggCount}個
 								</span>
 							</div>
 							<div className='flex gap-3 justify-center'>
 								<Button onClick={hatchEgg} className='bg-orange-500 hover:bg-orange-600'>
-									🐣 卵を孵化する
+									 たまごを孵化する
 								</Button>
 								<Button
 									onClick={() => discardEgg(1)}
 									variant="outline"
 									className='border-red-300 text-red-600 hover:bg-red-50'
 								>
-									🗑️ 卵を放棄する
+									 たまごを放棄する
 								</Button>
 							</div>
 						</div>
 					) : (
 						<div className='mt-4 text-gray-400'>
-							<p>卵がありません。環境保護活動を続けて卵を獲得しましょう！</p>
+							<p>たまごがありません。環境保護活動を続けてたまごを獲得しましょう！</p>
 						</div>
 					)}
 				</div>

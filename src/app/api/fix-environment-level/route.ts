@@ -67,7 +67,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<FixEnviro
     if (currentLevel < 50) {
       await aquariumRef.update({
         enviromentLevel: 50,
-        conservationMeter: Math.max(currentData?.conservationMeter || 0, 50), // 節約メーターも50未満なら50に
+        conservationMeter: Math.max(currentData?.conservationMeter || 0, 50), // 節約メータも50未満なら50に
         lastUpdated: Timestamp.now()
       });
 

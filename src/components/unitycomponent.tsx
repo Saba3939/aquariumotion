@@ -15,6 +15,10 @@ interface UnityComponentProps {
 function UnityComponent({ fishData, aquariumData }: UnityComponentProps) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+	const [isComponentMounted, setIsComponentMounted] = useState(false);
+	// データ送信のタイミングを制御するためのref
+	const lastSentDataRef = useRef<string>('');
+	const isInitialSendRef = useRef(false);
 
 	const { unityProvider, isLoaded, loadingProgression, sendMessage } =
 		useUnityContext({
@@ -24,36 +28,55 @@ function UnityComponent({ fishData, aquariumData }: UnityComponentProps) {
 			codeUrl: "Build/build_aquariumotion.wasm",
 		});
 
+	// コンポーネントのマウント状態を管理
+	useEffect(() => {
+		setIsComponentMounted(true);
+		return () => setIsComponentMounted(false);
+	}, []);
+
 	// コンテナのサイズを監視してUnityキャンバスのサイズを調整
 	useEffect(() => {
+		if (!isComponentMounted) return;
+
+		let timeoutId: NodeJS.Timeout | null = null;
+		let resizeObserver: ResizeObserver | null = null;
+		let isCleanedUp = false;
+
 		const handleResize = () => {
-			if (containerRef.current) {
-				const rect = containerRef.current.getBoundingClientRect();
-				if (rect.width > 0 && rect.height > 0) {
-					setDimensions({
-						width: Math.floor(rect.width),
-						height: Math.floor(rect.height),
-					});
-				}
+			if (isCleanedUp || !containerRef.current || !isComponentMounted) return;
+
+			const rect = containerRef.current.getBoundingClientRect();
+			if (rect.width > 0 && rect.height > 0) {
+				setDimensions({
+					width: Math.floor(rect.width),
+					height: Math.floor(rect.height),
+				});
 			}
 		};
 
-		// 初期サイズ設定（少し遅延させる）
-		const timeoutId = setTimeout(handleResize, 100);
-
 		// リサイズ監視
 		const handleWindowResize = () => {
+			if (isCleanedUp) return;
 			requestAnimationFrame(handleResize);
 		};
-		window.addEventListener("resize", handleWindowResize, { passive: true });
+
+		// イベントリスナーの安全な追加
+		try {
+			window.addEventListener("resize", handleWindowResize, { passive: true });
+		} catch (error) {
+			console.warn('Window resize listener registration failed:', error);
+		}
 
 		// ResizeObserver for more accurate container size tracking
-		let resizeObserver: ResizeObserver | null = null;
-		if (typeof ResizeObserver !== 'undefined') {
+		if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
 			try {
 				resizeObserver = new ResizeObserver((entries) => {
+					if (isCleanedUp) return;
+
 					// requestAnimationFrameで次のフレームで実行
 					requestAnimationFrame(() => {
+						if (isCleanedUp) return;
+
 						for (const entry of entries) {
 							if (entry.target === containerRef.current) {
 								handleResize();
@@ -62,19 +85,34 @@ function UnityComponent({ fishData, aquariumData }: UnityComponentProps) {
 						}
 					});
 				});
-				
-				// DOM要素が存在する場合のみ監視開始
-				if (containerRef.current) {
-					resizeObserver.observe(containerRef.current);
-				}
+
+				resizeObserver.observe(containerRef.current);
 			} catch (error) {
 				console.warn('ResizeObserver initialization failed:', error);
+				resizeObserver = null;
 			}
 		}
 
+		// 初期サイズ設定（少し遅延させる）
+		timeoutId = setTimeout(() => {
+			if (!isCleanedUp) {
+				handleResize();
+			}
+		}, 100);
+
 		return () => {
-			clearTimeout(timeoutId);
-			window.removeEventListener("resize", handleWindowResize);
+			isCleanedUp = true;
+
+			if (timeoutId) {
+				clearTimeout(timeoutId);
+			}
+
+			try {
+				window.removeEventListener("resize", handleWindowResize);
+			} catch (error) {
+				console.warn('Window resize listener removal failed:', error);
+			}
+
 			if (resizeObserver) {
 				try {
 					resizeObserver.disconnect();
@@ -83,18 +121,49 @@ function UnityComponent({ fishData, aquariumData }: UnityComponentProps) {
 				}
 			}
 		};
-	}, []);
+	}, [isComponentMounted]);
 
 	// ロード中の表示
 	const loadingPercentage = Math.round(loadingProgression * 100);
 
 	// Unityへのデータ送信を統合（初回ロード時と更新時）
 	useEffect(() => {
-		if (!isLoaded) return;
+		if (!isLoaded || !isComponentMounted || !containerRef.current) return;
 
-		const sendDataToUnity = () => {
+		let timeoutId: NodeJS.Timeout | null = null;
+		let isSending = false;
+
+		const sendDataToUnity = async () => {
+			// 同時送信を防ぐ
+			if (isSending) return;
+			isSending = true;
+
 			try {
-				// 水槽データの送信
+				// データのハッシュ値を生成して重複送信を防ぐ
+				const dataHash = JSON.stringify({
+					aquarium: aquariumData,
+					fish: fishData
+				});
+
+				// 同じデータの重複送信を防ぐ
+				if (lastSentDataRef.current === dataHash && isInitialSendRef.current) {
+					console.log("同じデータのため、Unity送信をスキップしました");
+					return;
+				}
+
+				// 送信前にデータの有効性をチェック
+				if (!aquariumData && fishData.length === 0) {
+					console.log("送信可能なデータがありません");
+					return;
+				}
+
+				// sendMessage が存在することを確認
+				if (typeof sendMessage !== 'function') {
+					console.warn("sendMessage関数が利用できません");
+					return;
+				}
+
+				// 水槽データの送信（存在する場合のみ）
 				if (aquariumData) {
 					const aquariumJson = JSON.stringify({
 						enviromentLevel: aquariumData.enviromentLevel,
@@ -104,9 +173,11 @@ function UnityComponent({ fishData, aquariumData }: UnityComponentProps) {
 					});
 
 					sendMessage("GameManager", "ReceiveAquariumData", aquariumJson);
+					// 送信間隔を空ける
+					await new Promise(resolve => setTimeout(resolve, 50));
 				}
 
-				// 魚データの送信
+				// 魚データの送信（存在する場合のみ）
 				if (fishData.length > 0) {
 					const fishJson = JSON.stringify(
 						fishData.map((fish) => ({
@@ -123,14 +194,28 @@ function UnityComponent({ fishData, aquariumData }: UnityComponentProps) {
 					sendMessage("GameManager", "ReceiveFishData", fishJson);
 				}
 
+				// 送信完了の記録
+				lastSentDataRef.current = dataHash;
+				isInitialSendRef.current = true;
 				console.log("データをUnityに送信しました:", { aquariumData, fishData });
 			} catch (error) {
 				console.error("Unityへのデータ送信に失敗しました:", error);
+			} finally {
+				isSending = false;
 			}
 		};
 
-		sendDataToUnity();
-	}, [isLoaded, aquariumData, fishData, sendMessage]);
+		// Unity読み込み完了後に少し遅延をかけてデータ送信
+		timeoutId = setTimeout(() => {
+			sendDataToUnity();
+		}, 200); // 遅延を少し長くして安定性を向上
+
+		return () => {
+			if (timeoutId) {
+				clearTimeout(timeoutId);
+			}
+		};
+	}, [isLoaded, aquariumData, fishData, sendMessage, isComponentMounted]);
 
 	return (
 		<div ref={containerRef} className='w-full h-full relative'>
@@ -146,7 +231,7 @@ function UnityComponent({ fishData, aquariumData }: UnityComponentProps) {
 					</div>
 				</div>
 			)}
-			{dimensions.width > 0 && dimensions.height > 0 && (
+			{isComponentMounted && dimensions.width > 0 && dimensions.height > 0 && containerRef.current && (
 				<Unity
 					unityProvider={unityProvider}
 					style={{

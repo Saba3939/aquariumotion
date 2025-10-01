@@ -6,12 +6,15 @@
 // 基準値設定（寮生活平均値）
 export const BASELINE_CONFIG = {
   WATER: 100,        // リットル/日
-  ELECTRICITY: 5,    // kWh/日
-} as const;
+  ELECTRICITY: 0.5,  // 時間/日（無駄な照明使用時間：30分）
+} as const;;;
 
 export interface UsageData {
-  waterUsage?: number;
-  electricityUsage?: number;
+  waterUsage?: number;      // リットル/日
+  electricityUsage?: number; // 秒/日（無駄な使用時間、内部で時間に変換される）
+  // デバイス情報（条件に応じた基準値適用のため）
+  electricityDeviceLastSeen?: Date; // 電気デバイスの最終接続日時
+  calculationDate?: Date;   // 計算対象日（デフォルトは今日）
 }
 
 export interface ConservationResult {
@@ -33,26 +36,63 @@ export interface ConservationResult {
  */
 export function calculateConservationScore(usage: UsageData): ConservationResult {
   const waterUsage = usage.waterUsage || 0;
-  const electricityUsage = usage.electricityUsage || 0;
+  const electricityUsageSeconds = usage.electricityUsage || 0; // 秒/日（無駄な使用時間）
+  
+  // 電気使用量を秒から時間に変換
+  const electricityUsage = electricityUsageSeconds / 3600; // 時間/日に変換
+
+  // 計算対象日（デフォルトは今日）
+  const calculationDate = usage.calculationDate || new Date();
+  const calculationDateString = calculationDate.toISOString().split('T')[0];
+
+  // 条件に応じた実際の使用量を決定
+  let actualWaterUsage = waterUsage;
+  let actualElectricityUsage = electricityUsage;
+
+  // 水使用量が0の時は必ず基準値として計算
+  if (waterUsage === 0) {
+    actualWaterUsage = BASELINE_CONFIG.WATER;
+  }
+
+  // 電気使用量が0かつデバイスのlastSeenがその日でない場合は基準値として計算
+  if (electricityUsageSeconds === 0 && usage.electricityDeviceLastSeen) {
+    const deviceLastSeenString = usage.electricityDeviceLastSeen.toISOString().split('T')[0];
+    if (deviceLastSeenString !== calculationDateString) {
+      actualElectricityUsage = BASELINE_CONFIG.ELECTRICITY;
+    }
+  }
 
   // 削減率計算（負の値も許可）
-  const waterReduction = (BASELINE_CONFIG.WATER - waterUsage) / BASELINE_CONFIG.WATER;
-  const electricityReduction = (BASELINE_CONFIG.ELECTRICITY - electricityUsage) / BASELINE_CONFIG.ELECTRICITY;
+  const waterReduction = (BASELINE_CONFIG.WATER - actualWaterUsage) / BASELINE_CONFIG.WATER;
+  const electricityReduction = (BASELINE_CONFIG.ELECTRICITY - actualElectricityUsage) / BASELINE_CONFIG.ELECTRICITY;
 
-  // スコア計算（負の値も許可）
-  const conservationScore = Math.round((waterReduction + electricityReduction) * 50);
+  // 新しい非線形スコア計算
+  const totalReduction = (waterReduction + electricityReduction) / 2;
+  let conservationScore: number;
+
+  if (totalReduction > 0) {
+    // 節約時：対数的上昇（最初は急激、後は緩やか）
+    // 少しの節約でも大きなスコア上昇、100点にするには90%以上の節約が必要
+    conservationScore = 100 * (1 - Math.exp(-4 * totalReduction));
+  } else {
+    // 浪費時：指数的下降（最初は急激、-100点は極端な浪費時のみ）
+    // 少しの浪費でも大きく減点、-100点は200%以上の浪費時
+    conservationScore = -100 * (1 - Math.exp(2 * totalReduction));
+  }
+
+  conservationScore = Math.round(conservationScore);
 
   // 詳細データ計算（負の値も許可）
-  const waterSaved = BASELINE_CONFIG.WATER - waterUsage;
-  const electricitySaved = BASELINE_CONFIG.ELECTRICITY - electricityUsage;
+  const waterSaved = BASELINE_CONFIG.WATER - actualWaterUsage;
+  const electricitySaved = BASELINE_CONFIG.ELECTRICITY - actualElectricityUsage; // 削減した無駄時間（時間）
 
   return {
     conservationScore: Math.max(-100, Math.min(100, conservationScore)), // -100から100の範囲に制限
     waterReduction,
     electricityReduction,
     details: {
-      waterUsage,
-      electricityUsage,
+      waterUsage: actualWaterUsage,
+      electricityUsage: actualElectricityUsage,
       waterSaved,
       electricitySaved,
     },

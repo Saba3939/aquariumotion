@@ -67,7 +67,7 @@
 ### 5. データベース設計 (Firestore)
 * **/aquariums/{uid}**
     * `unhatchedEggCount` (number): 未開封のたまごの数。
-    * `conservationMeter` (number): 節約メーターの現在の値。
+    * `conservationMeter` (number): 節約メータの現在の値。
     * `environmentLevel` (number): 環境レベル (0-100)。
     * **/fish/{fishId}** (サブコレクション)
         * `type_id` (string): 魚の種類のID。

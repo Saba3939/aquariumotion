@@ -18,7 +18,7 @@ export default function EggHatchingStatus({
 				<div className='w-6 h-6 bg-orange-100 rounded-full flex items-center justify-center mr-2'>
 					<div className='w-4 h-4 bg-orange-400 rounded-full'></div>
 				</div>
-				卵の孵化
+				たまごの孵化
 			</h2>
 			<div className='flex items-center justify-between'>
 				<div className='flex items-center space-x-3'>
@@ -29,7 +29,7 @@ export default function EggHatchingStatus({
 						<div className='text-2xl font-bold text-orange-600'>
 							{aquariumData?.unhatchedEggCount || 0} 個
 						</div>
-						<p className='text-sm text-gray-600'>孵化待ちの卵</p>
+						<p className='text-sm text-gray-600'>孵化待ちのたまご</p>
 					</div>
 				</div>
 				<div>
@@ -39,20 +39,20 @@ export default function EggHatchingStatus({
 								onClick={hatchEgg}
 								className='bg-orange-500 hover:bg-orange-600 text-white px-6 py-2'
 							>
-								卵を孵化する
+								たまごを孵化する
 							</Button>
 							<Button
 								onClick={() => discardEgg(1)}
 								variant="outline"
 								className='border-red-300 text-red-600 hover:bg-red-50 px-6 py-2'
 							>
-								卵を放棄する
+								たまごを放棄する
 							</Button>
 						</div>
 					) : (
 						<div className='text-gray-400 text-sm text-center'>
-							<p>卵がありません</p>
-							<p className='text-xs mt-1'>環境保護活動で卵を獲得しよう！</p>
+							<p>たまごがありません</p>
+							<p className='text-xs mt-1'>節約行動でたまごを獲得しよう！</p>
 						</div>
 					)}
 				</div>

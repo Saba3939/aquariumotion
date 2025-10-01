@@ -10,6 +10,7 @@ import {
 	DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import FishIcon from '@/components/fish-icon';
 
 interface WelcomeDialogProps {
 	isOpen: boolean;
@@ -41,7 +42,10 @@ export default function WelcomeDialog({ isOpen, onClose, fishName }: WelcomeDial
 						</div>
 
 						<div className="bg-green-50 p-3 rounded-lg">
-							<div className="font-semibold text-green-800">🐟 初期の魚をお迎えしました</div>
+							<div className="font-semibold text-green-800 flex items-center gap-2 justify-center">
+								<FishIcon typeId={0} size={24} />
+								初期の魚をお迎えしました
+							</div>
 							{fishName && (
 								<div className="text-green-600 text-xs mt-1">
 									「{fishName}」があなたの水族館で泳いでいます！

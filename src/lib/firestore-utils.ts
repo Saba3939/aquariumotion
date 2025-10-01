@@ -21,7 +21,9 @@ export async function saveDailyUsage(
   const updateData: Partial<DailyUsage> = {
     userId,
     date: today,
-    [`${usageType}Usage`]: FieldValue.increment(amount)
+    [`${usageType}Usage`]: FieldValue.increment(amount),
+    // 測定が成功したことを記録（デバイスが正常に稼働していることを示す）
+    [`${usageType}DeviceActive`]: true
   };
 
   await docRef.set(updateData, { merge: true });

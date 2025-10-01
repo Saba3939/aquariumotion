@@ -3,7 +3,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 // 水族館データ
 export interface Aquarium {
   unhatchedEggCount: number;     // 未開封のたまごの数
-  conservationMeter: number;     // 節約メーター値
+  conservationMeter: number;     // 節約メータ値
   environmentLevel: number;      // 環境レベル (0-100)
   lastUpdated: Timestamp;        // 最終更新日時
 }
@@ -13,7 +13,7 @@ export interface Fish {
   type_id: string;              // 魚の種類ID
   fish_name: string;            // 魚の名前
   status: 'raising' | 'inLinkAquarium';  // 飼育状態
-  eggMeter: number;             // たまごメーター (0-3)
+  eggMeter: number;             // たまごメータ (0-3)
   growthLevel: number;          // 成長レベル
   birthDate: Timestamp;         // 生年月日
 }
@@ -25,6 +25,15 @@ export interface DailyUsage {
   waterUsage?: number;
   electricityUsage?: number;
   conservationScore?: number;   // 計算された節約スコア
+  // デバイス測定状態（実際に測定できたかの記録）
+  waterDeviceActive?: boolean;  // 水道デバイスが正常に稼働していたか
+  electricityDeviceActive?: boolean; // 電気デバイスが正常に稼働していたか
+  // process-daily-usage処理時の追加フィールド
+  totalDailyWater?: number;     // 日別合計水使用量
+  totalDailyElectricity?: number; // 日別合計電気使用量（調整後）
+  actualElectricityUsage?: number; // 実際の測定値
+  electricityUsedBaseline?: boolean; // 基準値を使用したかどうか
+  processedAt?: Timestamp;      // 処理日時
 }
 
 // デバイス情報
