@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Fish } from "@/types/aquarium";
+import FishIcon from "@/components/fish-icon";
 
 interface DialogsProps {
 	// 魚誕生ダイアログ
@@ -33,12 +34,14 @@ export function FishBirthDialog({
 					<DialogTitle>🎉 新しい魚が誕生しました！</DialogTitle>
 				</DialogHeader>
 				<div className='text-center py-4'>
-					<div className='text-6xl mb-4'>🐠</div>
+					<div className='mb-4 flex justify-center'>
+						<FishIcon typeId={newBornFish?.type_id} size={96} />
+					</div>
 					<div className='text-lg font-semibold'>
 						{newBornFish?.fish_name}
 					</div>
 					<div className='text-gray-600 mt-2'>
-						あなたのエコ活動が新しい生命を育みました！
+						あなたの節約行動が新しい魚を生みました!
 					</div>
 				</div>
 			</DialogContent>
@@ -56,7 +59,7 @@ export function FishSelectionDialog({
 		<Dialog open={showFishSelectionDialog} onOpenChange={setShowFishSelectionDialog}>
 			<DialogContent className="max-w-md">
 				<DialogHeader>
-					<DialogTitle>🐠 魚を手放してください</DialogTitle>
+					<DialogTitle> 魚を手放してください</DialogTitle>
 					<DialogDescription>
 						水族館の上限は3匹です。新しい魚を迎えるために、既存の魚を1匹手放してください。
 					</DialogDescription>
@@ -68,13 +71,13 @@ export function FishSelectionDialog({
 							className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition-colors"
 						>
 							<div className="flex items-center space-x-3">
-								<div className="text-3xl">🐠</div>
+								<FishIcon typeId={fish.type_id} size={48} />
 								<div>
 									<h3 className="font-medium text-gray-800">
 										{fish.fish_name}
 									</h3>
 									<p className="text-sm text-gray-600">
-										成長レベル: {fish.growthLevel} | エッグメーター: {fish.eggMeter}/3
+										成長レベル: {fish.growthLevel} | たまごメータ: {fish.eggMeter}/3
 									</p>
 								</div>
 							</div>

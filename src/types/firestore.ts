@@ -3,7 +3,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 // 水族館データ
 export interface Aquarium {
   unhatchedEggCount: number;     // 未開封のたまごの数
-  conservationMeter: number;     // 節約メーター値
+  conservationMeter: number;     // 節約メータ値
   environmentLevel: number;      // 環境レベル (0-100)
   lastUpdated: Timestamp;        // 最終更新日時
 }
@@ -13,7 +13,7 @@ export interface Fish {
   type_id: string;              // 魚の種類ID
   fish_name: string;            // 魚の名前
   status: 'raising' | 'inLinkAquarium';  // 飼育状態
-  eggMeter: number;             // たまごメーター (0-3)
+  eggMeter: number;             // たまごメータ (0-3)
   growthLevel: number;          // 成長レベル
   birthDate: Timestamp;         // 生年月日
 }

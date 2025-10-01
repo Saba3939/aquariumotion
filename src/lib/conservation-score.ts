@@ -66,8 +66,21 @@ export function calculateConservationScore(usage: UsageData): ConservationResult
   const waterReduction = (BASELINE_CONFIG.WATER - actualWaterUsage) / BASELINE_CONFIG.WATER;
   const electricityReduction = (BASELINE_CONFIG.ELECTRICITY - actualElectricityUsage) / BASELINE_CONFIG.ELECTRICITY;
 
-  // スコア計算（負の値も許可）
-  const conservationScore = Math.round((waterReduction + electricityReduction) * 50);
+  // 新しい非線形スコア計算
+  const totalReduction = (waterReduction + electricityReduction) / 2;
+  let conservationScore: number;
+
+  if (totalReduction > 0) {
+    // 節約時：対数的上昇（最初は急激、後は緩やか）
+    // 少しの節約でも大きなスコア上昇、100点にするには90%以上の節約が必要
+    conservationScore = 100 * (1 - Math.exp(-4 * totalReduction));
+  } else {
+    // 浪費時：指数的下降（最初は急激、-100点は極端な浪費時のみ）
+    // 少しの浪費でも大きく減点、-100点は200%以上の浪費時
+    conservationScore = -100 * (1 - Math.exp(2 * totalReduction));
+  }
+
+  conservationScore = Math.round(conservationScore);
 
   // 詳細データ計算（負の値も許可）
   const waterSaved = BASELINE_CONFIG.WATER - actualWaterUsage;

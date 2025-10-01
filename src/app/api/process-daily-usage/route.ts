@@ -241,7 +241,7 @@ export async function POST(request: NextRequest) {
 		const currentConservationMeter = currentAquarium?.conservationMeter || 50;
 		const currentEnvironmentLevel = currentAquarium?.enviromentLevel || 0;
 
-		// 新しい節約メーター値を計算（スコア加算は初回ログイン時のみ）
+		// 新しい節約メータ値を計算（スコア加算は初回ログイン時のみ）
 		let newConservationMeter = currentConservationMeter;
 		if (isFirstLoginToday && totalScoreAdded !== 0) {
 			newConservationMeter = currentConservationMeter + totalScoreAdded;
@@ -270,10 +270,10 @@ export async function POST(request: NextRequest) {
 				let newEggMeter = Math.min(3, currentEggMeter + 1); // 最大3
 				const newGrowthLevel = Math.min(10, currentGrowthLevel + 1); // 最大10
 
-				// 卵メーターが3に達した場合、卵を生成してリセット
+				// たまごメータが3に達した場合、卵を生成してリセット
 				if (newEggMeter === 3 && currentEggMeter < 3) {
 					newEggCount++;
-					newEggMeter = 0; // 卵メーターをリセット
+					newEggMeter = 0; // たまごメータをリセット
 				}
 
 				// 魚のeggMeterを更新
@@ -297,7 +297,7 @@ export async function POST(request: NextRequest) {
 					resetTo: newConservationMeter,
 					reason: "zero",
 					message:
-						"節約メーターがゼロを下回ったため、環境レベルが低下し、メーターが50にリセットされました",
+						"節約メータがゼロを下回ったため、環境レベルが低下し、メーターが50にリセットされました",
 				});
 			} else if (newConservationMeter >= 100) {
 				// 環境レベルを+5し、残りの値を保持（50にリセットしない）
@@ -307,7 +307,7 @@ export async function POST(request: NextRequest) {
 				meterResets.push({
 					resetTo: newConservationMeter,
 					reason: "hundred",
-					message: "節約メーターが100に達したため、環境レベルが向上しました！",
+					message: "節約メータが100に達したため、環境レベルが向上しました！",
 				});
 			}
 

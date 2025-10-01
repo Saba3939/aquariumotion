@@ -58,7 +58,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<IncreaseE
       );
     }
 
-    // 全ての魚の卵メーターを1増やす
+    // 全ての魚のたまごメータを1増やす
     const batch = db.batch();
     const updatedFish = [];
 
@@ -84,7 +84,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<IncreaseE
     // バッチ実行
     await batch.commit();
 
-    console.log(`全ての魚の卵メーターを1増加しました。対象魚数: ${updatedFish.length}`);
+    console.log(`全ての魚のたまごメータを1増加しました。対象魚数: ${updatedFish.length}`);
 
     return NextResponse.json({
       success: true,

@@ -103,7 +103,7 @@ export const useAquariumApi = (user: FirebaseUser | null) => {
 		}
 	}, [user]);
 
-	// 卵メーターが3に達した魚から卵を生成（手動実行用）
+	// たまごメータが3に達した魚から卵を生成（手動実行用）
 	const generateEggs = useCallback(async (fishData: Fish[]) => {
 		if (!user) return null;
 
@@ -156,6 +156,11 @@ export const useAquariumApi = (user: FirebaseUser | null) => {
 				body: JSON.stringify({})
 			});
 
+			if (!res.ok) {
+				const errorText = await res.text();
+				throw new Error(`API Error ${res.status}: ${errorText}`);
+			}
+
 			const responseData = await res.json();
 			return responseData;
 		} catch (error: unknown) {
@@ -183,6 +188,11 @@ export const useAquariumApi = (user: FirebaseUser | null) => {
 				},
 				body: JSON.stringify({})
 			});
+
+			if (!res.ok) {
+				const errorText = await res.text();
+				throw new Error(`API Error ${res.status}: ${errorText}`);
+			}
 
 			const responseData = await res.json();
 			return responseData;

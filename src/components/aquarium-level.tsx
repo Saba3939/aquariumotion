@@ -10,10 +10,10 @@ export default function AquariumLevel({ aquariumData }: AquariumLevelProps) {
 
 	return (
 		<div className='bg-white rounded-2xl shadow-lg p-6 space-y-6'>
-			{/* 節約メーター */}
+			{/* 節約メータ */}
 			<div>
 				<div className='text-3xl font-bold text-blue-600 mb-2'>
-					節約メーター {aquariumData?.conservationMeter || 0}
+					節約メータ {aquariumData?.conservationMeter || 0}
 				</div>
 				<div className='w-full bg-gray-200 rounded-full h-3'>
 					<div

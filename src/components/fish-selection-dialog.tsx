@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Fish } from "@/types/aquarium";
+import FishIcon from "@/components/fish-icon";
 
 interface FishSelectionDialogProps {
 	isOpen: boolean;
@@ -73,7 +74,7 @@ export default function FishSelectionDialog({
 						>
 							<div className="flex-1">
 								<div className="flex items-center gap-3">
-									<div className="text-2xl">🐟</div>
+									<FishIcon typeId={fish.type_id} size={40} />
 									<div>
 										<h3 className="font-medium text-gray-900">
 											{fish.fish_name}
@@ -81,7 +82,7 @@ export default function FishSelectionDialog({
 										<div className="text-sm text-gray-500 space-y-1">
 											<p>ステータス: {fish.status}</p>
 											<p>成長レベル: {fish.growthLevel}</p>
-											<p>卵メーター: {fish.eggMeter}/3</p>
+											<p>たまごメータ: {fish.eggMeter}/3</p>
 											<p>誕生日: {fish.birthDate?.toDate?.()?.toLocaleDateString() || '不明'}</p>
 										</div>
 									</div>
