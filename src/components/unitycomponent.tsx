@@ -220,12 +220,12 @@ function UnityComponent({ fishData, aquariumData }: UnityComponentProps) {
 	return (
 		<div ref={containerRef} className='w-full h-full relative'>
 			{!isLoaded && (
-				<div className='absolute inset-0 flex items-center justify-center bg-gradient-to-b from-blue-100 to-blue-200 z-10'>
+				<div className='absolute inset-0 flex items-center justify-center bg-[#66B5D3] z-10'>
 					<div className='text-center'>
-						<p className='text-blue-600 font-semibold'>
+						<p className='text-cyan-100 font-semibold'>
 							Loading... ({loadingPercentage}%)
 						</p>
-						<div className='text-xs text-blue-500 mt-2'>
+						<div className='text-xs text-cyan-200 mt-2'>
 							画面サイズ: {dimensions.width} x {dimensions.height}
 						</div>
 					</div>

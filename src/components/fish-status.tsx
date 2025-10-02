@@ -24,19 +24,21 @@ export default function FishStatus({
 	const raisingFishCount = fishData.filter(fish => fish.status === 'raising').length;
 
 	return (
-		<div className='bg-white rounded-2xl shadow-lg p-6'>
-			<h2 className='text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2'>
+		<div className='glass rounded-3xl shadow-xl p-6 border border-white/40 transition-smooth hover:shadow-2xl'>
+			<h2 className='text-xl font-semibold text-gray-800 mb-6 flex items-center gap-2'>
 				<FishIcon typeId={0} size={32} />
-				魚のステータス
+				<span className='bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent'>
+					魚のステータス
+				</span>
 			</h2>
 
 			{/* Link水槽への魚送信機能 */}
 			{fishData.length > 0 && raisingFishCount > 0 && (
-				<div className='mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200'>
+				<div className='mb-6 p-4 bg-blue-50 rounded-xl border border-blue-200 transition-smooth hover:bg-blue-100'>
 					<div className='flex items-center justify-between'>
 						<div>
-							<h3 className='font-medium text-blue-800 flex items-center'>
-								🔗 Link水槽
+							<h3 className='font-medium text-blue-800'>
+								Link水槽
 							</h3>
 							<p className='text-sm text-blue-600 mt-1'>
 								魚をLink水槽に送ってLink水槽で泳がせましょう（1匹まで）
@@ -48,33 +50,33 @@ export default function FishStatus({
 							disabled={loading}
 							size="sm"
 						>
-							🏊‍♀️ 魚を送る
+							魚を送る
 						</Button>
 					</div>
 				</div>
 			)}
 
 			{fishData.length > 0 ? (
-				<div className='space-y-3'>
+				<div className='space-y-4'>
 					{fishData.map((fish) => (
 						<div
 							key={fish.id}
-							className={`flex items-center justify-between p-4 rounded-lg transition-all duration-300 ${
+							className={`flex items-center justify-between p-5 rounded-2xl transition-smooth transform hover:scale-[1.02] ${
 								fish.eggMeter >= 3
-									? 'bg-gradient-to-r from-orange-50 to-yellow-50 border-2 border-orange-200 shadow-lg animate-pulse'
-									: 'bg-blue-50'
+									? 'bg-gradient-to-r from-orange-100 to-yellow-100 border-2 border-orange-300 shadow-xl animate-pulse'
+									: 'glass border border-blue-200/50 hover:shadow-lg'
 							}`}
 						>
 							<div className='flex items-center space-x-4'>
 								<FishIcon typeId={fish.type_id} size={64} />
 								<div>
-									<h3 className='font-medium text-gray-800'>
+									<h3 className='font-bold text-xl text-gray-800 '>
 										{fish.fish_name}
 									</h3>
 									<p className='text-sm text-gray-600'>
 										成長レベル: {fish.growthLevel} | 状態: {
 											fish.status === 'raising' ? '育成中' :
-											fish.status === 'inLinkAquarium' ? 'Link水槽で泳いでいる' :
+											fish.status === 'inLinkAquarium' ? 'Link水槽に投入中' :
 											fish.status
 										}
 									</p>

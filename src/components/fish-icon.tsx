@@ -12,14 +12,14 @@ interface FishIconProps {
  */
 export default function FishIcon({ typeId, size = 64, className = '' }: FishIconProps) {
 	// type_idから画像パスを決定
-	// 利用可能な画像: 0.png, 2.png, 4.png, 5.png
+	// 利用可能な画像: 0.png,1.png, 2.png, 4.png, 5.png
 	const getImagePath = (id?: number) => {
 		if (id === undefined || id === null) {
 			return '/0.png'; // デフォルトはマンボウ
 		}
 
 		// 利用可能な画像IDリスト
-		const availableIds = [0, 2, 4, 5];
+		const availableIds = [0, 1, 2, 3, 4, 5];
 
 		// type_idが利用可能な画像に含まれているか確認
 		if (availableIds.includes(id)) {

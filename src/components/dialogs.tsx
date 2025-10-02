@@ -61,7 +61,7 @@ export function FishSelectionDialog({
 				<DialogHeader>
 					<DialogTitle> 魚を手放してください</DialogTitle>
 					<DialogDescription>
-						水族館の上限は3匹です。新しい魚を迎えるために、既存の魚を1匹手放してください。
+						水族館の上限は5匹です。新しい魚を迎えるために、既存の魚を1匹手放してください。
 					</DialogDescription>
 				</DialogHeader>
 				<div className="space-y-3 mt-4">
