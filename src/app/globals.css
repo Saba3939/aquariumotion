@@ -29,6 +29,14 @@
 		--chart-3: 197 37% 24%;
 		--chart-4: 43 74% 66%;
 		--chart-5: 27 87% 67%;
+
+		/* 海のテーマカラー - 透き通る海のイメージ */
+		--ocean-deep: 210 75% 50%;
+		--ocean-blue: 200 70% 65%;
+		--ocean-light: 195 60% 80%;
+		--coral: 15 90% 65%;
+		--seafoam: 165 70% 75%;
+		--sand: 45 60% 85%;
 	}
 
 	.dark {
@@ -63,5 +71,52 @@
 	}
 	body {
 		@apply bg-background text-foreground;
+	}
+}
+
+@layer utilities {
+	/* グラスモーフィズム効果 */
+	.glass {
+		background: rgba(255, 255, 255, 1);
+		backdrop-filter: blur(10px);
+		-webkit-backdrop-filter: blur(10px);
+		border: 1px solid rgba(255, 255, 255, 0.3);
+	}
+
+	.glass-dark {
+		background: rgba(0, 0, 0, 0.2);
+		backdrop-filter: blur(10px);
+		-webkit-backdrop-filter: blur(10px);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+	}
+
+	/* 海のグラデーション */
+	.ocean-gradient {
+		background: linear-gradient(135deg, hsl(var(--ocean-deep)) 0%, hsl(var(--ocean-blue)) 50%, hsl(var(--ocean-light)) 100%);
+	}
+
+	/* 波のアニメーション */
+	@keyframes wave {
+		0%, 100% { transform: translateY(0); }
+		50% { transform: translateY(-10px); }
+	}
+
+	.animate-wave {
+		animation: wave 3s ease-in-out infinite;
+	}
+
+	/* 浮遊アニメーション */
+	@keyframes float {
+		0%, 100% { transform: translateY(0) rotate(0deg); }
+		50% { transform: translateY(-15px) rotate(2deg); }
+	}
+
+	.animate-float {
+		animation: float 4s ease-in-out infinite;
+	}
+
+	/* スムーズなトランジション */
+	.transition-smooth {
+		transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 	}
 }

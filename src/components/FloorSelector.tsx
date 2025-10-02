@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { User } from 'firebase/auth';
 
@@ -109,92 +108,82 @@ export default function FloorSelector({ user, onFloorSet }: FloorSelectorProps) 
 
   if (fetching) {
     return (
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>🏢 フロア設定</CardTitle>
-          <CardDescription>現在の設定を読み込み中...</CardDescription>
-        </CardHeader>
-      </Card>
+      <div className="w-full">
+        <p className="text-sm text-gray-600">現在の設定を読み込み中...</p>
+      </div>
     );
   }
 
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader>
-        <CardTitle>🏢 フロア設定</CardTitle>
-        <CardDescription>
-          あなたの所在フロアを設定してください
-        </CardDescription>
-        {currentFloor && (
-          <div className="text-sm text-green-600 bg-green-50 p-2 rounded">
-            現在の設定: {Math.floor(currentFloor / 10)}号館{currentFloor % 10}階 (#{currentFloor})
-          </div>
-        )}
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label htmlFor="building" className="block text-sm font-medium text-gray-700">号館</label>
-              <select
-                id="building"
-                value={building}
-                onChange={(e) => setBuilding(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">選択</option>
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
-                  <option key={num} value={num.toString()}>
-                    {num}号館
-                  </option>
-                ))}
-              </select>
-            </div>
+    <div className="w-full">
+      {currentFloor && (
+        <div className="text-sm text-green-600 bg-green-50 p-2 rounded mb-4">
+          現在の設定: {Math.floor(currentFloor / 10)}号館{currentFloor % 10}階 (#{currentFloor})
+        </div>
+      )}
 
-            <div className="space-y-2">
-              <label htmlFor="floor" className="block text-sm font-medium text-gray-700">階数</label>
-              <select
-                id="floor"
-                value={floor}
-                onChange={(e) => setFloor(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">選択</option>
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
-                  <option key={num} value={num.toString()}>
-                    {num}階
-                  </option>
-                ))}
-              </select>
-            </div>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label htmlFor="building" className="block text-sm font-medium text-gray-700">号館</label>
+            <select
+              id="building"
+              value={building}
+              onChange={(e) => setBuilding(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">選択</option>
+              {[1, 2, 3, 4, 5, 6, 7].map((num) => (
+                <option key={num} value={num.toString()}>
+                  {num}号館
+                </option>
+              ))}
+            </select>
           </div>
 
-          {building && floor && (
-            <div className="p-3 bg-blue-50 rounded-lg">
-              <div className="text-sm text-blue-800">
-                <div className="font-medium">設定予定:</div>
-                <div>{building}号館{floor}階</div>
-                <div className="text-xs text-blue-600">
-                  フロア番号: {parseInt(building) * 10 + parseInt(floor)}
-                </div>
+          <div className="space-y-2">
+            <label htmlFor="floor" className="block text-sm font-medium text-gray-700">階数</label>
+            <select
+              id="floor"
+              value={floor}
+              onChange={(e) => setFloor(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">選択</option>
+              {[1, 2, 3, 4].map((num) => (
+                <option key={num} value={num.toString()}>
+                  {num}階
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {building && floor && (
+          <div className="p-3 bg-blue-50 rounded-lg">
+            <div className="text-sm text-blue-800">
+              <div className="font-medium">設定予定:</div>
+              <div>{building}号館{floor}階</div>
+              <div className="text-xs text-blue-600">
+                フロア番号: {parseInt(building) * 10 + parseInt(floor)}
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={loading || !building || !floor}
-          >
-            {loading ? '設定中...' : 'フロアを設定'}
-          </Button>
-        </form>
+        <Button
+          type="submit"
+          className="w-full"
+          disabled={loading || !building || !floor}
+        >
+          {loading ? '設定中...' : 'フロアを設定'}
+        </Button>
+      </form>
 
-        <div className="mt-4 text-xs text-gray-500 space-y-1">
-          <div>💡 フロア番号は2桁の数字で管理されます</div>
-          <div>例: 6号館1階 → 61、2号館3階 → 23</div>
-        </div>
-      </CardContent>
-    </Card>
+      <div className="mt-4 text-xs text-gray-500 space-y-1">
+        <div>💡 フロア番号は2桁の数字で管理されます</div>
+        <div>例: 6号館1階 → 61、2号館3階 → 23</div>
+      </div>
+    </div>
   );
 }

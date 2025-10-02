@@ -260,14 +260,14 @@ export default function DeviceManager() {
               <input
                 id="registrationCode"
                 type="text"
-                placeholder="ESP32に表示された8桁のコードを入力"
+                placeholder="デバイス記載のコードを入力してください"
                 value={registrationCode}
                 onChange={(e) => setRegistrationCode(e.target.value.toUpperCase())}
                 maxLength={8}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono"
               />
               <p className="text-sm text-gray-600">
-                ESP32デバイスのLCDまたはシリアルモニターに表示されたコードを入力してください
+                節電デバイスに記載されたコードを入力してください
               </p>
             </div>
 
@@ -283,7 +283,7 @@ export default function DeviceManager() {
               <h4 className="font-medium">登録手順</h4>
               <ol className="text-sm text-gray-600 space-y-1 list-decimal list-inside">
                 <li>ESP32デバイスの電源を入れてWiFiに接続します</li>
-                <li>デバイスのLCDまたはシリアルモニターに表示される8桁のコードを確認します</li>
+                <li>デバイスに記載された8桁のコードを確認します</li>
                 <li>上記の入力欄にコードを入力して「デバイスを登録」ボタンをクリックします</li>
                 <li>登録が完了すると、デバイスからのデータ送信が開始されます</li>
               </ol>
